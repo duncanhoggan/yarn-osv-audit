@@ -1,0 +1,15 @@
+{
+  // JSON Schema for IDE autocompletion
+  "$schema": "https://raw.githubusercontent.com/duncanhoggan/yarn-osv-audit/main/docs/schema.json",
+
+  // Severity threshold — fail on high and critical only
+  "high": true,
+
+  // Allowlist of vulnerability IDs to ignore
+  "allowlist": [],
+
+  // Output control
+  "output-format": "table",
+  "show-found": true,
+  "show-not-found": true
+}

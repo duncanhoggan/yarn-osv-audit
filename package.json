@@ -1,0 +1,34 @@
+{
+  "name": "yarn-osv-audit",
+  "version": "0.0.5",
+  "description": "Audit Yarn v1 lockfiles against the OSV vulnerability database",
+  "bin": {
+    "yarn-osv-audit": "dist/index.js"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsup src/index.ts --format esm",
+    "test": "vitest",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "yarn",
+    "audit",
+    "security",
+    "osv",
+    "vulnerability"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}

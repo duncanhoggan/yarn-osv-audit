@@ -1,0 +1,15 @@
+{
+  // Test config
+  "high": true,
+  "allowlist": [
+    "GHSA-xxxx-yyyy-zzzz",
+    {
+      "id": "GHSA-aaaa-bbbb-cccc",
+      "reason": "Not exploitable in our usage"
+    }
+  ],
+  "output-format": "table",
+  "show-found": true,
+  "show-not-found": true,
+  "retry-count": 1
+}

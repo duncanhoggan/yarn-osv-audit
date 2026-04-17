@@ -1,0 +1,18 @@
+# yarn lockfile v1
+
+
+local-pkg@file:./packages/local:
+  version "1.0.0"
+  resolved "file:./packages/local"
+
+linked-pkg@link:./packages/linked:
+  version "2.0.0"
+  resolved "link:./packages/linked"
+
+valid-pkg@^1.0.0:
+  version "1.0.0"
+  resolved "https://registry.yarnpkg.com/valid-pkg/-/valid-pkg-1.0.0.tgz"
+  integrity sha512-abc123
+
+no-resolved@^1.0.0:
+  version "1.0.0"

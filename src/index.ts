@@ -1,0 +1,174 @@
+#!/usr/bin/env node
+
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { loadConfig } from "./config.js";
+import { filterVulnerabilities, getProductionPackages } from "./filter.js";
+import { parseLockfile } from "./lockfile-parser.js";
+import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
+import { formatOutput } from "./reporter.js";
+
+const VERSION = "0.0.5";
+
+function fatal(msg: string): never {
+  console.error(`Error: ${msg}`);
+  process.exit(2);
+}
+
+function printHelp(): void {
+  console.log(`yarn-osv-audit v${VERSION}
+
+Audit Yarn v1 lockfiles against the OSV vulnerability database.
+
+Usage:
+  yarn-osv-audit [options]
+
+Options:
+  --config, -c <path>  Path to config file (default: .osv-audit.jsonc)
+  --verbose, -v        Log diagnostic details to stderr
+  --help               Show this help message
+  --version            Show version number
+
+Configuration is done via .osv-audit.jsonc — see documentation for details.`);
+}
+
+function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean } {
+  let configPath: string | undefined;
+  let help = false;
+  let version = false;
+  let verbose = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--help") {
+      help = true;
+    } else if (arg === "--version") {
+      version = true;
+    } else if (arg === "--verbose" || arg === "-v") {
+      verbose = true;
+    } else if (arg === "--config" || arg === "-c") {
+      configPath = args[++i];
+      if (!configPath) {
+        fatal("--config requires a path argument");
+      }
+    } else {
+      console.error(`Unknown argument: ${arg}`);
+      printHelp();
+      process.exit(2);
+    }
+  }
+
+  return { configPath, help, version, verbose };
+}
+
+async function main(): Promise<void> {
+  const args = parseArgs(process.argv.slice(2));
+
+  if (args.help) {
+    printHelp();
+    process.exit(0);
+  }
+
+  if (args.version) {
+    console.log(`yarn-osv-audit v${VERSION}`);
+    process.exit(0);
+  }
+
+  // Load config
+  let config;
+  try {
+    config = loadConfig(args.configPath);
+  } catch (err: unknown) {
+    fatal(err instanceof Error ? err.message : String(err));
+  }
+
+  console.log(`yarn-osv-audit v${VERSION} — scanning ${config.lockfile}\n`);
+
+  const vlog = (msg: string) => {
+    if (args.verbose) console.error(`[verbose] ${msg}`);
+  };
+
+  // Parse lockfile
+  let packages;
+  try {
+    packages = parseLockfile(config.lockfile);
+  } catch (err: unknown) {
+    fatal(err instanceof Error ? err.message : String(err));
+  }
+
+  console.log(`Scanning ${packages.length} packages...\n`);
+
+  if (args.verbose) {
+    vlog(`parsed ${packages.length} packages from ${config.lockfile}`);
+    for (const pkg of packages) {
+      vlog(`  pkg: ${pkg.name}@${pkg.version}`);
+    }
+  }
+
+  // Query OSV API
+  let vulnMap;
+  let modifiedMap;
+  try {
+    const batchResult = await queryBatch(packages, config["retry-count"]);
+    vulnMap = batchResult.vulnMap;
+    modifiedMap = batchResult.modifiedMap;
+  } catch (err: unknown) {
+    fatal(`querying OSV API: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (args.verbose) {
+    vlog(`querybatch: ${vulnMap.size} packages had vulns`);
+    for (const [pkgKey, ids] of vulnMap) {
+      vlog(`  ${pkgKey} → ${ids.join(", ")}`);
+    }
+  }
+
+  // Collect unique vuln IDs for hydration
+  const allVulnIds = new Set<string>();
+  for (const ids of vulnMap.values()) {
+    for (const id of ids) {
+      allVulnIds.add(id);
+    }
+  }
+
+  if (allVulnIds.size === 0 && config.allowlist.length === 0) {
+    const result = {
+      vulnerabilities: [],
+      packagesScanned: packages.length,
+      allowlistNotFound: [],
+    };
+    console.log(formatOutput(result, config["output-format"], config["show-found"], config["show-not-found"]));
+    process.exit(0);
+  }
+
+  // Hydrate vulnerability details
+  let vulnDetails;
+  try {
+    vulnDetails = await hydrateVulnerabilities([...allVulnIds], modifiedMap, config["retry-count"]);
+  } catch (err: unknown) {
+    fatal(`fetching vulnerability details: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Get production packages if skip-dev is enabled
+  let prodPackages: Set<string> | undefined;
+  if (config["skip-dev"]) {
+    try {
+      const lockfileContent = readFileSync(resolve(config.lockfile), "utf-8");
+      prodPackages = getProductionPackages(lockfileContent, config["package-json"]);
+    } catch (err: unknown) {
+      fatal(`resolving production dependencies: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  // Filter and report
+  const result = filterVulnerabilities(packages, vulnMap, vulnDetails, config, prodPackages, args.verbose);
+  console.log(formatOutput(result, config["output-format"], config["show-found"], config["show-not-found"]));
+
+  // Exit code
+  process.exit(result.vulnerabilities.length > 0 ? 1 : 0);
+}
+
+main().catch((err) => {
+  console.error(`Unexpected error: ${err instanceof Error ? err.message : String(err)}`);
+  process.exit(2);
+});

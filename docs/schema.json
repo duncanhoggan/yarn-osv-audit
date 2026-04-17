@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "yarn-osv-audit configuration",
+  "description": "Configuration file for yarn-osv-audit (.osv-audit.jsonc)",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URL for IDE support"
+    },
+    "low": {
+      "type": "boolean",
+      "default": true,
+      "description": "Fail on low severity and above"
+    },
+    "moderate": {
+      "type": "boolean",
+      "default": false,
+      "description": "Fail on moderate severity and above"
+    },
+    "high": {
+      "type": "boolean",
+      "default": false,
+      "description": "Fail on high severity and above"
+    },
+    "critical": {
+      "type": "boolean",
+      "default": false,
+      "description": "Fail on critical severity only"
+    },
+    "allowlist": {
+      "type": "array",
+      "default": [],
+      "description": "Vulnerability IDs to ignore",
+      "items": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Vulnerability ID (e.g. GHSA-xxxx-yyyy-zzzz)"
+          },
+          {
+            "type": "object",
+            "required": ["id"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Vulnerability ID"
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why this vulnerability is allowlisted"
+              },
+              "path": {
+                "type": "string",
+                "description": "Dependency path filter (e.g. express>body-parser>qs)"
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "output-format": {
+      "type": "string",
+      "enum": ["table", "json", "summary"],
+      "default": "table",
+      "description": "Output format"
+    },
+    "show-found": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show details of found vulnerabilities"
+    },
+    "show-not-found": {
+      "type": "boolean",
+      "default": true,
+      "description": "Show allowlisted items that were not found"
+    },
+    "skip-dev": {
+      "type": "boolean",
+      "default": false,
+      "description": "Exclude devDependencies from audit"
+    },
+    "lockfile": {
+      "type": "string",
+      "default": "yarn.lock",
+      "description": "Path to yarn.lock"
+    },
+    "package-json": {
+      "type": "string",
+      "default": "package.json",
+      "description": "Path to package.json (used with skip-dev)"
+    },
+    "retry-count": {
+      "type": "number",
+      "default": 3,
+      "minimum": 0,
+      "description": "Number of retries on API failure"
+    }
+  },
+  "additionalProperties": false
+}

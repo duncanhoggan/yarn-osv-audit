@@ -1,0 +1,131 @@
+# yarn-osv-audit
+
+Audit Yarn Classic (v1) lockfiles against the OSV.dev vulnerability database. Zero runtime dependencies. Replaces the broken `yarn audit` command.
+
+## Install
+
+```bash
+yarn add -D yarn-osv-audit
+```
+
+## Usage
+
+```bash
+# Scan using .osv-audit.jsonc in project root (created automatically with defaults if missing)
+yarn-osv-audit
+
+# Use a specific config file
+yarn-osv-audit --config .osv-audit.ci.jsonc
+```
+
+Add to package.json:
+
+```json
+{
+  "scripts": {
+    "audit": "yarn-osv-audit"
+  }
+}
+```
+
+## Config File (.osv-audit.jsonc)
+
+All configuration is via `.osv-audit.jsonc` (JSON with comments). No CLI flags beyond `--config`, `--help`, `--version`.
+
+```jsonc
+{
+  // Severity threshold — set ONE to true. Fails on that level and above.
+  // Default: "low": true (all vulnerabilities fail)
+  "low": false,
+  "moderate": false,
+  "high": true,        // fail on high + critical
+  "critical": false,
+
+  // Allowlist vulnerabilities to ignore
+  "allowlist": [
+    "GHSA-xxxx-yyyy-zzzz",
+    {
+      "id": "GHSA-aaaa-bbbb-cccc",
+      "reason": "Not exploitable in our usage"
+    },
+    {
+      "id": "GHSA-mmmm-nnnn-oooo",
+      "path": "express>body-parser>qs",
+      "reason": "Only affects query string parsing"
+    }
+  ],
+
+  // Output: "table" (default, human-readable), "json" (CI/tooling), "summary" (one-line)
+  "output-format": "table",
+
+  // Show vulnerability details / stale allowlist entries
+  "show-found": true,
+  "show-not-found": true,
+
+  // Exclude devDependencies
+  "skip-dev": false,
+
+  // File paths
+  "lockfile": "yarn.lock",
+  "package-json": "package.json",
+
+  // Network retries
+  "retry-count": 3
+}
+```
+
+## Severity Threshold
+
+| Config Setting    | Fails On                        |
+|-------------------|---------------------------------|
+| `"low": true`     | Low, Moderate, High, Critical   |
+| `"moderate": true` | Moderate, High, Critical       |
+| `"high": true`    | High, Critical                  |
+| `"critical": true` | Critical only                  |
+
+Severity derived from CVSS v3 scores: Low (0.1-3.9), Moderate (4.0-6.9), High (7.0-8.9), Critical (9.0-10.0).
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0    | No vulnerabilities found (at or above threshold) |
+| 1    | Vulnerabilities found (at or above threshold) |
+| 2    | Runtime error (network, parse, invalid args) |
+
+## JSON Output Format
+
+When `"output-format": "json"`:
+
+```json
+{
+  "vulnerabilities": [
+    {
+      "id": "GHSA-xxxx-yyyy-zzzz",
+      "aliases": ["CVE-2024-12345"],
+      "summary": "Description of the vulnerability",
+      "severity": "HIGH",
+      "cvss": 7.5,
+      "package": "package-name",
+      "installedVersion": "1.0.0",
+      "fixedVersion": "1.0.1",
+      "url": "https://osv.dev/vulnerability/GHSA-xxxx-yyyy-zzzz"
+    }
+  ],
+  "metadata": {
+    "packagesScanned": 847,
+    "vulnerabilitiesFound": 1,
+    "severityCounts": {
+      "critical": 0,
+      "high": 1,
+      "moderate": 0,
+      "low": 0
+    }
+  }
+}
+```
+
+## Requirements
+
+- Node.js >= 18
+- Yarn v1 lockfile (yarn.lock)
