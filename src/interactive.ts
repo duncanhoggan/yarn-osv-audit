@@ -109,10 +109,11 @@ export function insertAllowlistEntries(
 }
 
 function serializeEntry(entry: AllowlistRecord, indent: string): string {
-  const parts: string[] = [`"id": ${JSON.stringify(entry.id)}`];
-  if (entry.reason) parts.push(`"reason": ${JSON.stringify(entry.reason)}`);
-  if (entry.path) parts.push(`"path": ${JSON.stringify(entry.path)}`);
-  return `${indent}{ ${parts.join(", ")} }`;
+  const fieldIndent = indent + "  ";
+  const parts: string[] = [`${fieldIndent}"id": ${JSON.stringify(entry.id)}`];
+  if (entry.reason) parts.push(`${fieldIndent}"reason": ${JSON.stringify(entry.reason)}`);
+  if (entry.path) parts.push(`${fieldIndent}"path": ${JSON.stringify(entry.path)}`);
+  return `${indent}{\n${parts.join(",\n")}\n${indent}}`;
 }
 
 /**

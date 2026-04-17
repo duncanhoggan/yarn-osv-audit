@@ -54,6 +54,19 @@ describe("insertAllowlistEntries", () => {
     expect(parsed.allowlist[0].id).toBe("GHSA-1");
   });
 
+  it("serializes entries in multi-line form with correct indentation", () => {
+    const input = `{
+  "allowlist": []
+}
+`;
+    const out = insertAllowlistEntries(input, [
+      { id: "GHSA-xq3m-2v4x-88gg", reason: "https://osv.dev/vulnerability/GHSA-xq3m-2v4x-88gg" },
+    ]);
+    expect(out).toContain(
+      `    {\n      "id": "GHSA-xq3m-2v4x-88gg",\n      "reason": "https://osv.dev/vulnerability/GHSA-xq3m-2v4x-88gg"\n    }`,
+    );
+  });
+
   it("is a no-op when entries is empty", () => {
     const input = `{ "allowlist": [] }`;
     expect(insertAllowlistEntries(input, [])).toBe(input);
