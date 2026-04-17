@@ -3,14 +3,14 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { stdin } from "node:process";
-import { loadConfig } from "./config.js";
-import { filterVulnerabilities, getProductionPackages } from "./filter.js";
+import { loadConfigWithMeta } from "./config.js";
+import { computeDepPaths, filterVulnerabilities, getProductionPackages } from "./filter.js";
 import { appendAllowlistEntries, promptAllowlistEntries } from "./interactive.js";
 import { parseLockfile } from "./lockfile-parser.js";
 import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
 import { formatOutput } from "./reporter.js";
 
-const VERSION = "0.0.8";
+const VERSION = "0.1.1";
 
 function fatal(msg: string): never {
   console.error(`Error: ${msg}`);
@@ -27,6 +27,7 @@ Usage:
 
 Options:
   --config, -c <path>  Path to config file (default: .osv-audit.jsonc)
+  --format <fmt>       Output format: compact (default), table, json, summary
   --interactive, -i    Prompt to add each vulnerability to the allowlist
   --verbose, -v        Log diagnostic details to stderr
   --help               Show this help message
@@ -35,12 +36,13 @@ Options:
 Configuration is done via .osv-audit.jsonc — see documentation for details.`);
 }
 
-function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; interactive: boolean } {
+function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; interactive: boolean; format?: "compact" | "table" | "json" | "summary" } {
   let configPath: string | undefined;
   let help = false;
   let version = false;
   let verbose = false;
   let interactive = false;
+  let format: "compact" | "table" | "json" | "summary" | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -52,6 +54,13 @@ function parseArgs(args: string[]): { configPath?: string; help: boolean; versio
       verbose = true;
     } else if (arg === "--interactive" || arg === "-i") {
       interactive = true;
+    } else if (arg === "--format") {
+      const value = args[++i];
+      if (!value) fatal("--format requires a value (compact, table, json, summary)");
+      if (value !== "compact" && value !== "table" && value !== "json" && value !== "summary") {
+        fatal(`invalid --format "${value}" (expected: compact, table, json, summary)`);
+      }
+      format = value;
     } else if (arg === "--config" || arg === "-c") {
       configPath = args[++i];
       if (!configPath) {
@@ -64,7 +73,7 @@ function parseArgs(args: string[]): { configPath?: string; help: boolean; versio
     }
   }
 
-  return { configPath, help, version, verbose, interactive };
+  return { configPath, help, version, verbose, interactive, format };
 }
 
 async function main(): Promise<void> {
@@ -82,11 +91,23 @@ async function main(): Promise<void> {
 
   // Load config
   let config;
+  let explicitConfigKeys: Set<string>;
   try {
-    config = loadConfig(args.configPath);
+    const loaded = loadConfigWithMeta(args.configPath);
+    config = loaded.config;
+    explicitConfigKeys = loaded.explicit;
   } catch (err: unknown) {
     fatal(err instanceof Error ? err.message : String(err));
   }
+
+  // Resolve effective format.
+  // Precedence: --format flag > explicit config value > (CI ? "compact" : "table").
+  const ciActive = Boolean(process.env.CI) && process.env.CI !== "false";
+  const resolvedFormat: "compact" | "table" | "json" | "summary" =
+    args.format ??
+    (explicitConfigKeys.has("output-format")
+      ? config["output-format"]
+      : (ciActive ? "compact" : "table"));
 
   console.log(`yarn-osv-audit v${VERSION} — scanning ${config.lockfile}\n`);
 
@@ -143,7 +164,7 @@ async function main(): Promise<void> {
       packagesScanned: packages.length,
       allowlistNotFound: [],
     };
-    console.log(formatOutput(result, config["output-format"], config["show-found"], config["show-not-found"]));
+    console.log(formatOutput(result, resolvedFormat, config["show-found"], config["show-not-found"]));
     process.exit(0);
   }
 
@@ -168,7 +189,22 @@ async function main(): Promise<void> {
 
   // Filter and report
   const result = filterVulnerabilities(packages, vulnMap, vulnDetails, config, prodPackages, args.verbose);
-  console.log(formatOutput(result, config["output-format"], config["show-found"], config["show-not-found"]));
+
+  // Attach dep paths for compact output
+  if (resolvedFormat === "compact" && result.vulnerabilities.length > 0) {
+    try {
+      const lockfileContent = readFileSync(resolve(config.lockfile), "utf-8");
+      const vulnKeys = new Set(result.vulnerabilities.map((v) => `${v.package}@${v.installedVersion}`));
+      const depPaths = computeDepPaths(lockfileContent, config["package-json"], vulnKeys);
+      for (const v of result.vulnerabilities) {
+        v.depPaths = depPaths.get(`${v.package}@${v.installedVersion}`) ?? [];
+      }
+    } catch {
+      // Dep paths are best-effort; leave empty on failure.
+    }
+  }
+
+  console.log(formatOutput(result, resolvedFormat, config["show-found"], config["show-not-found"]));
 
   // Interactive allowlisting
   if (args.interactive && result.vulnerabilities.length > 0) {

@@ -21,7 +21,7 @@ export interface Config {
   high: boolean;
   critical: boolean;
   allowlist: AllowlistEntry[];
-  "output-format": "table" | "json" | "summary";
+  "output-format": "compact" | "table" | "json" | "summary";
   "show-found": boolean;
   "show-not-found": boolean;
   "skip-dev": boolean;
@@ -104,6 +104,7 @@ export interface VulnerabilityResult {
   installedVersion: string;
   fixedVersion: string | null;
   url: string;
+  depPaths?: string[];
 }
 
 export interface AuditResult {

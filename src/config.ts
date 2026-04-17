@@ -60,6 +60,10 @@ function stripJsonc(text: string): string {
 }
 
 export function loadConfig(configPath?: string): Config {
+  return loadConfigWithMeta(configPath).config;
+}
+
+export function loadConfigWithMeta(configPath?: string): { config: Config; explicit: Set<string> } {
   const resolvedPath = resolve(configPath ?? ".osv-audit.jsonc");
 
   let raw: string;
@@ -67,12 +71,10 @@ export function loadConfig(configPath?: string): Config {
     raw = readFileSync(resolvedPath, "utf-8");
   } catch (err: unknown) {
     if (configPath) {
-      // Explicit config file was requested but not found
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Failed to read config file "${resolvedPath}": ${msg}`);
     }
-    // Default config file not found — use defaults
-    return { ...DEFAULT_CONFIG };
+    return { config: { ...DEFAULT_CONFIG }, explicit: new Set() };
   }
 
   let parsed: Record<string, unknown>;
@@ -84,7 +86,8 @@ export function loadConfig(configPath?: string): Config {
     throw new Error(`Failed to parse config file "${resolvedPath}": ${msg}`);
   }
 
-  return mergeConfig(parsed);
+  const explicit = new Set(Object.keys(parsed).filter((k) => k !== "$schema"));
+  return { config: mergeConfig(parsed), explicit };
 }
 
 function mergeConfig(parsed: Record<string, unknown>): Config {

@@ -52,26 +52,46 @@ Add it to your `package.json`:
 
 ## Output
 
-### Table (default)
+### Compact (default under CI)
+
+CI-friendly — one vulnerability per block, no column wrapping, no box-drawing characters. Reads well at any terminal width. Auto-selected when `CI` env var is set; otherwise the default is `table`. Set `"output-format"` in your config to pin a format, or pass `--format` to override.
+
+Colour auto-enables on a TTY and auto-disables under `CI=true`, `NO_COLOR`, or when stdout isn't a TTY.
 
 ```
-yarn-osv-audit v0.0.8 — scanning yarn.lock
+yarn-osv-audit v0.1.0 — scanning yarn.lock
 
-Found 3 vulnerabilities in 847 packages
+Found 2 vulnerabilities in 847 packages
 
-┌──────────┬──────────────┬─────────┬──────────────────────────────────────────────────┬─────────┬───────┐
-│ Severity │ Package      │ Version │ Vulnerability                                    │ Fixed   │ CVSS  │
-├──────────┼──────────────┼─────────┼──────────────────────────────────────────────────┼─────────┼───────┤
-│ HIGH     │ socket.io    │ 4.5.0   │ GHSA-677m-j7p3-52f9                              │ 4.2.6   │ 7.5   │
-│          │              │         │ Unbounded binary attachments DoS                 │         │       │
-│          │              │         │ https://osv.dev/vulnerability/GHSA-677m-j7p3-52f9│         │       │
-├──────────┼──────────────┼─────────┼──────────────────────────────────────────────────┼─────────┼───────┤
-│ MODERATE │ semver       │ 7.5.2   │ GHSA-c2qf-rxjj-qqgw                              │ 7.5.4   │ 5.3   │
-│          │              │         │ Regular expression DoS                           │         │       │
-│          │              │         │ https://osv.dev/vulnerability/GHSA-c2qf-rxjj-qqgw│         │       │
-└──────────┴──────────────┴─────────┴──────────────────────────────────────────────────┴─────────┴───────┘
+[HIGH · cvss 7.5] socket.io@4.5.0
+  GHSA-677m-j7p3-52f9 — Unbounded binary attachments DoS
+  Path: app > socket.io
+  Fixed in: 4.2.6
+  https://osv.dev/vulnerability/GHSA-677m-j7p3-52f9
 
-3 vulnerabilities found (0 critical, 1 high, 1 moderate, 1 low)
+[MODERATE · cvss 5.3] semver@7.5.2
+  GHSA-c2qf-rxjj-qqgw — Regular expression DoS
+  Path: app > semver
+  Fixed in: 7.5.4
+  https://osv.dev/vulnerability/GHSA-c2qf-rxjj-qqgw
+
+Summary: 2 vulnerabilities (0 critical · 1 high · 1 moderate · 0 low)
+```
+
+### Table (default locally)
+
+```
+yarn-osv-audit --format table
+
+Found 2 vulnerabilities in 847 packages
+
+┌──────────┬───────────┬─────────┬───────────────────────────────────────────────────┬───────┬──────┐
+│ Severity │ Package   │ Version │ Vulnerability                                     │ Fixed │ CVSS │
+├──────────┼───────────┼─────────┼───────────────────────────────────────────────────┼───────┼──────┤
+│ HIGH     │ socket.io │ 4.5.0   │ GHSA-677m-j7p3-52f9                               │ 4.2.6 │ 7.5  │
+│          │           │         │ Unbounded binary attachments DoS                  │       │      │
+│          │           │         │ https://osv.dev/vulnerability/GHSA-677m-j7p3-52f9 │       │      │
+└──────────┴───────────┴─────────┴───────────────────────────────────────────────────┴───────┴──────┘
 ```
 
 ### JSON
@@ -141,7 +161,8 @@ All configuration lives in `.osv-audit.jsonc` (JSON with comments). No flags to 
     }
   ],
 
-  // Output: "table" | "json" | "summary"
+  // Output: "compact" | "table" | "json" | "summary"
+  // If unset: auto — "compact" when CI env var is set, else "table".
   "output-format": "table",
 
   // Show details of found vulnerabilities
@@ -187,7 +208,7 @@ Severity is derived from CVSS v3 scores: Low (0.1-3.9), Moderate (4.0-6.9), High
 | `high` | `boolean` | `false` | Fail on high+ severity |
 | `critical` | `boolean` | `false` | Fail on critical only |
 | `allowlist` | `(string \| object)[]` | `[]` | Vuln IDs to ignore |
-| `output-format` | `string` | `"table"` | `"table"`, `"json"`, or `"summary"` |
+| `output-format` | `string` | auto | `"compact"`, `"table"`, `"json"`, or `"summary"`. Auto: `compact` if `CI` is set, else `table`. |
 | `show-found` | `boolean` | `true` | Show vulnerability details |
 | `show-not-found` | `boolean` | `true` | Show stale allowlist entries |
 | `skip-dev` | `boolean` | `false` | Exclude devDependencies (production tree follows `dependencies` + `optionalDependencies`) |
@@ -202,6 +223,7 @@ Intentionally minimal. Configuration belongs in the config file.
 | Flag | Description |
 |------|-------------|
 | `--config`, `-c` | Path to config file (default: `.osv-audit.jsonc`) |
+| `--format <fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
 | `--interactive`, `-i` | Prompt per vulnerability to append it to the config's `allowlist` |
 | `--verbose`, `-v` | Log diagnostic details to stderr |
 | `--help` | Show help |

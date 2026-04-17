@@ -62,7 +62,7 @@
     },
     "output-format": {
       "type": "string",
-      "enum": ["table", "json", "summary"],
+      "enum": ["compact", "table", "json", "summary"],
       "default": "table",
       "description": "Output format"
     },

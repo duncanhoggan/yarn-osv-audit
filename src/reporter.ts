@@ -20,23 +20,139 @@ function countSeverities(vulns: VulnerabilityResult[]): SeverityCounts {
   return counts;
 }
 
-function severityCountString(counts: SeverityCounts): string {
-  return `${counts.critical} critical, ${counts.high} high, ${counts.moderate} moderate, ${counts.low} low`;
+function severityCountString(counts: SeverityCounts, sep = ", "): string {
+  return `${counts.critical} critical${sep}${counts.high} high${sep}${counts.moderate} moderate${sep}${counts.low} low`;
 }
 
-// --- Table output ---
+// --- Colour handling ---
+
+function shouldColor(): boolean {
+  if (process.env.NO_COLOR) return false;
+  if (process.env.FORCE_COLOR && process.env.FORCE_COLOR !== "0") return true;
+  if (process.env.CI && process.env.CI !== "false") return false;
+  return process.stdout.isTTY === true;
+}
+
+const ANSI = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  brightRed: "\x1b[91m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  gray: "\x1b[90m",
+};
+
+function colorize(text: string, code: string, enabled: boolean): string {
+  return enabled ? `${code}${text}${ANSI.reset}` : text;
+}
+
+function severityAnsi(level: SeverityLevel): string {
+  switch (level) {
+    case "CRITICAL": return ANSI.brightRed;
+    case "HIGH":     return ANSI.red;
+    case "MODERATE": return ANSI.yellow;
+    case "LOW":      return ANSI.cyan;
+  }
+}
+
+// --- Compact output (default) ---
+
+function wrapOnCommas(items: string[], indent: string, width = 80): string[] {
+  if (items.length === 0) return [];
+  const lines: string[] = [];
+  let current = "";
+  for (let i = 0; i < items.length; i++) {
+    const piece = items[i] + (i < items.length - 1 ? "," : "");
+    const candidate = current ? `${current} ${piece}` : piece;
+    if (indent.length + candidate.length > width && current) {
+      lines.push(indent + current);
+      current = piece;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(indent + current);
+  return lines;
+}
+
+export function formatCompact(
+  result: AuditResult,
+  showFound: boolean,
+  showNotFound: boolean,
+  colorEnabled?: boolean,
+): string {
+  const color = colorEnabled ?? shouldColor();
+  const { vulnerabilities, packagesScanned, allowlistNotFound } = result;
+  const lines: string[] = [];
+
+  if (vulnerabilities.length === 0) {
+    lines.push(`No vulnerabilities found in ${packagesScanned} packages`);
+    if (showNotFound && allowlistNotFound.length > 0) {
+      const sorted = [...allowlistNotFound].sort();
+      lines.push(`Stale allowlist (${sorted.length}):`);
+      for (const line of wrapOnCommas(sorted, "  ")) lines.push(line);
+    }
+    return lines.join("\n");
+  }
+
+  lines.push(`Found ${vulnerabilities.length} vulnerabilities in ${packagesScanned} packages`);
+
+  if (showFound) {
+    for (const v of vulnerabilities) {
+      lines.push("");
+      const sev = colorize(v.severity, severityAnsi(v.severity), color);
+      const header = `[${sev} · cvss ${v.cvss.toFixed(1)}] ${colorize(`${v.package}@${v.installedVersion}`, ANSI.bold, color)}`;
+      lines.push(header);
+      lines.push(`  ${v.id} — ${v.summary}`);
+      const paths = v.depPaths ?? [];
+      if (paths.length > 0) {
+        const shown = paths.slice(0, 3);
+        for (const p of shown) lines.push(`  Path: ${p}`);
+        if (paths.length > shown.length) {
+          lines.push(`  Path: …and ${paths.length - shown.length} more`);
+        }
+      }
+      if (v.fixedVersion) {
+        lines.push(`  Fixed in: ${v.fixedVersion}`);
+      }
+      lines.push(`  ${colorize(v.url, ANSI.dim, color)}`);
+    }
+  }
+
+  lines.push("");
+  const counts = countSeverities(vulnerabilities);
+  lines.push(
+    `Summary: ${vulnerabilities.length} vulnerabilities (${severityCountString(counts, " · ")})`,
+  );
+
+  if (showNotFound && allowlistNotFound.length > 0) {
+    const sorted = [...allowlistNotFound].sort();
+    const header = `Stale allowlist (${sorted.length}):`;
+    const indent = " ".repeat(header.length + 1);
+    const wrapped = wrapOnCommas(sorted, indent);
+    if (wrapped.length > 0) {
+      wrapped[0] = `${header} ${wrapped[0].slice(indent.length)}`;
+    }
+    for (const line of wrapped) lines.push(line);
+  }
+
+  return lines.join("\n");
+}
+
+// --- Legacy table output ---
 
 function pad(str: string, width: number): string {
   return str + " ".repeat(Math.max(0, width - str.length));
 }
 
-function severityColor(level: SeverityLevel): string {
-  // ANSI color codes
+function severityColorTable(level: SeverityLevel): string {
   switch (level) {
-    case "CRITICAL": return `\x1b[91m${level}\x1b[0m`; // bright red
-    case "HIGH":     return `\x1b[31m${level}\x1b[0m`;  // red
-    case "MODERATE": return `\x1b[33m${level}\x1b[0m`;  // yellow
-    case "LOW":      return `\x1b[36m${level}\x1b[0m`;  // cyan
+    case "CRITICAL": return `\x1b[91m${level}\x1b[0m`;
+    case "HIGH":     return `\x1b[31m${level}\x1b[0m`;
+    case "MODERATE": return `\x1b[33m${level}\x1b[0m`;
+    case "LOW":      return `\x1b[36m${level}\x1b[0m`;
   }
 }
 
@@ -59,7 +175,6 @@ export function formatTable(result: AuditResult, showFound: boolean, showNotFoun
   );
 
   if (showFound) {
-    // Calculate column widths
     const colWidths = {
       severity: Math.max(8, ...vulnerabilities.map((v) => v.severity.length)),
       package: Math.max(7, ...vulnerabilities.map((v) => v.package.length)),
@@ -74,7 +189,6 @@ export function formatTable(result: AuditResult, showFound: boolean, showNotFoun
     const midBorder = `├${hr.replaceAll("┬", "┼")}┤`;
     const botBorder = `└${hr.replaceAll("┬", "┴")}┘`;
 
-    // Header
     lines.push(topBorder);
     lines.push(
       `│ ${pad("Severity", colWidths.severity)} │ ${pad("Package", colWidths.package)} │ ${pad("Version", colWidths.version)} │ ${pad("Vulnerability", colWidths.vuln)} │ ${pad("Fixed", colWidths.fixed)} │ ${pad("CVSS", colWidths.cvss)} │`,
@@ -83,17 +197,14 @@ export function formatTable(result: AuditResult, showFound: boolean, showNotFoun
 
     for (let i = 0; i < vulnerabilities.length; i++) {
       const v = vulnerabilities[i];
-      // Row 1: severity, package, version, vuln ID, fixed, cvss
-      const severityStr = severityColor(v.severity);
+      const severityStr = severityColorTable(v.severity);
       const severityPad = " ".repeat(Math.max(0, colWidths.severity - v.severity.length));
       lines.push(
         `│ ${severityStr}${severityPad} │ ${pad(v.package, colWidths.package)} │ ${pad(v.installedVersion, colWidths.version)} │ ${pad(v.id, colWidths.vuln)} │ ${pad(v.fixedVersion ?? "N/A", colWidths.fixed)} │ ${pad(v.cvss.toFixed(1), colWidths.cvss)} │`,
       );
-      // Row 2: summary
       lines.push(
         `│ ${pad("", colWidths.severity)} │ ${pad("", colWidths.package)} │ ${pad("", colWidths.version)} │ ${pad(v.summary.slice(0, colWidths.vuln), colWidths.vuln)} │ ${pad("", colWidths.fixed)} │ ${pad("", colWidths.cvss)} │`,
       );
-      // Row 3: URL
       lines.push(
         `│ ${pad("", colWidths.severity)} │ ${pad("", colWidths.package)} │ ${pad("", colWidths.version)} │ ${pad(v.url, colWidths.vuln)} │ ${pad("", colWidths.fixed)} │ ${pad("", colWidths.cvss)} │`,
       );
@@ -158,11 +269,13 @@ export function formatSummary(result: AuditResult): string {
 
 export function formatOutput(
   result: AuditResult,
-  format: "table" | "json" | "summary",
+  format: "compact" | "table" | "json" | "summary",
   showFound: boolean,
   showNotFound: boolean,
 ): string {
   switch (format) {
+    case "compact":
+      return formatCompact(result, showFound, showNotFound);
     case "table":
       return formatTable(result, showFound, showNotFound);
     case "json":

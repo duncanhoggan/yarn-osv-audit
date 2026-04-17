@@ -169,6 +169,74 @@ export function getProductionPackages(
 }
 
 /**
+ * Compute dependency paths from package.json roots to each vulnerable package.
+ * Returns a map from "name@version" to a list of "root > ... > name" strings.
+ */
+export function computeDepPaths(
+  lockfileContent: string,
+  packageJsonPath: string,
+  vulnerableKeys: Set<string>,
+  maxPathsPerPkg = 5,
+): Map<string, string[]> {
+  const paths = new Map<string, string[]>();
+  if (vulnerableKeys.size === 0) return paths;
+
+  const graph = parseLockfileGraph(lockfileContent);
+
+  let pkgJson: {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
+  };
+  try {
+    const raw = readFileSync(resolve(packageJsonPath), "utf-8");
+    pkgJson = JSON.parse(raw);
+  } catch {
+    return paths;
+  }
+
+  const roots = {
+    ...(pkgJson.dependencies ?? {}),
+    ...(pkgJson.devDependencies ?? {}),
+    ...(pkgJson.optionalDependencies ?? {}),
+  };
+
+  type QItem = { spec: string; chain: string[] };
+  const queue: QItem[] = [];
+  for (const [name, range] of Object.entries(roots)) {
+    queue.push({ spec: `${name}@${range}`, chain: [] });
+  }
+
+  const MAX_WORK = 200_000;
+  let work = 0;
+  while (queue.length > 0 && work < MAX_WORK) {
+    work++;
+    const { spec, chain } = queue.shift()!;
+    const entry = graph.get(spec);
+    if (!entry) continue;
+    if (chain.includes(entry.name)) continue;
+
+    const newChain = [...chain, entry.name];
+    const key = `${entry.name}@${entry.version}`;
+
+    if (vulnerableKeys.has(key)) {
+      const existing = paths.get(key) ?? [];
+      const pathStr = newChain.join(" > ");
+      if (existing.length < maxPathsPerPkg && !existing.includes(pathStr)) {
+        existing.push(pathStr);
+        paths.set(key, existing);
+      }
+    }
+
+    for (const [depName, depRange] of Object.entries(entry.dependencies)) {
+      queue.push({ spec: `${depName}@${depRange}`, chain: newChain });
+    }
+  }
+
+  return paths;
+}
+
+/**
  * Main filtering: apply allowlist, severity threshold, and skip-dev.
  */
 export function filterVulnerabilities(
