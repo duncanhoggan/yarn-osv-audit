@@ -73,4 +73,16 @@ describe("parseLockfileGraph", () => {
     expect(express!.dependencies).toHaveProperty("body-parser", "1.20.1");
     expect(express!.dependencies).toHaveProperty("qs", "6.11.0");
   });
+
+  it("includes optionalDependencies in the dependency graph", () => {
+    const content = readFileSync(resolve(fixturesDir, "optional-deps.lock"), "utf-8");
+    const graph = parseLockfileGraph(content);
+
+    const fb = graph.get("firebase-admin@12.0.0");
+    expect(fb).toBeDefined();
+    // Regular dependency
+    expect(fb!.dependencies).toHaveProperty("jsonwebtoken", "^9.0.0");
+    // Optional dependency must also be present — production installs follow these
+    expect(fb!.dependencies).toHaveProperty("@google-cloud/firestore", "^7.1.0");
+  });
 });

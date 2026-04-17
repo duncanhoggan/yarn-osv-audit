@@ -55,7 +55,7 @@ Add it to your `package.json`:
 ### Table (default)
 
 ```
-yarn-osv-audit v0.0.2 — scanning yarn.lock
+yarn-osv-audit v0.0.8 — scanning yarn.lock
 
 Found 3 vulnerabilities in 847 packages
 
@@ -190,7 +190,7 @@ Severity is derived from CVSS v3 scores: Low (0.1-3.9), Moderate (4.0-6.9), High
 | `output-format` | `string` | `"table"` | `"table"`, `"json"`, or `"summary"` |
 | `show-found` | `boolean` | `true` | Show vulnerability details |
 | `show-not-found` | `boolean` | `true` | Show stale allowlist entries |
-| `skip-dev` | `boolean` | `false` | Exclude devDependencies |
+| `skip-dev` | `boolean` | `false` | Exclude devDependencies (production tree follows `dependencies` + `optionalDependencies`) |
 | `lockfile` | `string` | `"yarn.lock"` | Path to yarn.lock |
 | `package-json` | `string` | `"package.json"` | Path to package.json |
 | `retry-count` | `number` | `3` | API retry count |
@@ -202,8 +202,26 @@ Intentionally minimal. Configuration belongs in the config file.
 | Flag | Description |
 |------|-------------|
 | `--config`, `-c` | Path to config file (default: `.osv-audit.jsonc`) |
+| `--interactive`, `-i` | Prompt per vulnerability to append it to the config's `allowlist` |
+| `--verbose`, `-v` | Log diagnostic details to stderr |
 | `--help` | Show help |
 | `--version` | Show version |
+
+### Interactive Allowlisting
+
+Running with `-i` walks through each vulnerability in the report and lets you add it to the `allowlist` directly — comments and formatting in `.osv-audit.jsonc` are preserved. Duplicate occurrences of the same vulnerability ID are grouped into a single prompt.
+
+```bash
+yarn-osv-audit -i
+```
+
+```
+[CRITICAL] GHSA-xq3m-2v4x-88gg — protobufjs@7.2.6, protobufjs@7.5.4
+  Add to allowlist? (y/N/q) y
+  Reason (optional): awaiting upstream patch
+```
+
+Answer `y` to allowlist, `n`/Enter to skip, `q` to quit early. Requires a TTY — skipped in non-interactive environments like CI.
 
 ## Exit Codes
 

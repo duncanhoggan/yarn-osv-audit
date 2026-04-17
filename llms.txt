@@ -28,9 +28,19 @@ Add to package.json:
 }
 ```
 
+## CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `--config`, `-c <path>` | Path to config file (default: `.osv-audit.jsonc`) |
+| `--interactive`, `-i` | After reporting, prompt per vulnerability (y/N/q) to append it to the config's `allowlist`. Preserves JSONC comments. TTY only. |
+| `--verbose`, `-v` | Log diagnostic details to stderr (parsed packages, OSV results, skip-dev trace) |
+| `--help` | Show help |
+| `--version` | Show version |
+
 ## Config File (.osv-audit.jsonc)
 
-All configuration is via `.osv-audit.jsonc` (JSON with comments). No CLI flags beyond `--config`, `--help`, `--version`.
+Most configuration is via `.osv-audit.jsonc` (JSON with comments). CLI flags: `--config` / `-c`, `--interactive` / `-i`, `--verbose` / `-v`, `--help`, `--version`.
 
 ```jsonc
 {
@@ -62,7 +72,7 @@ All configuration is via `.osv-audit.jsonc` (JSON with comments). No CLI flags b
   "show-found": true,
   "show-not-found": true,
 
-  // Exclude devDependencies
+  // Exclude devDependencies (production tree = dependencies + optionalDependencies)
   "skip-dev": false,
 
   // File paths

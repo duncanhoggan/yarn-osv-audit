@@ -2,13 +2,15 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { stdin } from "node:process";
 import { loadConfig } from "./config.js";
 import { filterVulnerabilities, getProductionPackages } from "./filter.js";
+import { appendAllowlistEntries, promptAllowlistEntries } from "./interactive.js";
 import { parseLockfile } from "./lockfile-parser.js";
 import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
 import { formatOutput } from "./reporter.js";
 
-const VERSION = "0.0.5";
+const VERSION = "0.0.8";
 
 function fatal(msg: string): never {
   console.error(`Error: ${msg}`);
@@ -25,6 +27,7 @@ Usage:
 
 Options:
   --config, -c <path>  Path to config file (default: .osv-audit.jsonc)
+  --interactive, -i    Prompt to add each vulnerability to the allowlist
   --verbose, -v        Log diagnostic details to stderr
   --help               Show this help message
   --version            Show version number
@@ -32,11 +35,12 @@ Options:
 Configuration is done via .osv-audit.jsonc — see documentation for details.`);
 }
 
-function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean } {
+function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; interactive: boolean } {
   let configPath: string | undefined;
   let help = false;
   let version = false;
   let verbose = false;
+  let interactive = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -46,6 +50,8 @@ function parseArgs(args: string[]): { configPath?: string; help: boolean; versio
       version = true;
     } else if (arg === "--verbose" || arg === "-v") {
       verbose = true;
+    } else if (arg === "--interactive" || arg === "-i") {
+      interactive = true;
     } else if (arg === "--config" || arg === "-c") {
       configPath = args[++i];
       if (!configPath) {
@@ -58,7 +64,7 @@ function parseArgs(args: string[]): { configPath?: string; help: boolean; versio
     }
   }
 
-  return { configPath, help, version, verbose };
+  return { configPath, help, version, verbose, interactive };
 }
 
 async function main(): Promise<void> {
@@ -154,7 +160,7 @@ async function main(): Promise<void> {
   if (config["skip-dev"]) {
     try {
       const lockfileContent = readFileSync(resolve(config.lockfile), "utf-8");
-      prodPackages = getProductionPackages(lockfileContent, config["package-json"]);
+      prodPackages = getProductionPackages(lockfileContent, config["package-json"], args.verbose);
     } catch (err: unknown) {
       fatal(`resolving production dependencies: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -163,6 +169,24 @@ async function main(): Promise<void> {
   // Filter and report
   const result = filterVulnerabilities(packages, vulnMap, vulnDetails, config, prodPackages, args.verbose);
   console.log(formatOutput(result, config["output-format"], config["show-found"], config["show-not-found"]));
+
+  // Interactive allowlisting
+  if (args.interactive && result.vulnerabilities.length > 0) {
+    if (!stdin.isTTY) {
+      console.error("--interactive requires a TTY. Skipping prompts.");
+    } else {
+      const entries = await promptAllowlistEntries(result.vulnerabilities);
+      if (entries.length > 0) {
+        const configPath = resolve(args.configPath ?? ".osv-audit.jsonc");
+        try {
+          appendAllowlistEntries(configPath, entries);
+          console.log(`\nAdded ${entries.length} entr${entries.length === 1 ? "y" : "ies"} to ${configPath}.`);
+        } catch (err: unknown) {
+          fatal(`updating config "${configPath}": ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+    }
+  }
 
   // Exit code
   process.exit(result.vulnerabilities.length > 0 ? 1 : 0);

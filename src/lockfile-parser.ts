@@ -114,7 +114,7 @@ export function parseLockfileGraph(content: string): Map<string, LockfileEntry> 
         if (trimmed.startsWith("version ")) {
           version = extractQuotedValue(trimmed, "version ");
           inDeps = false;
-        } else if (trimmed === "dependencies:") {
+        } else if (trimmed === "dependencies:" || trimmed === "optionalDependencies:") {
           inDeps = true;
         } else if (
           trimmed.startsWith("resolved ") ||
@@ -130,7 +130,7 @@ export function parseLockfileGraph(content: string): Map<string, LockfileEntry> 
             deps[depMatch[1]] = depMatch[2];
           }
         } else {
-          // Another section header like optionalDependencies:
+          // Another section header like peerDependencies:
           if (trimmed.endsWith(":")) {
             inDeps = false;
           }

@@ -1,5 +1,8 @@
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { filterVulnerabilities, getSeverityThreshold } from "../src/filter.js";
+import { filterVulnerabilities, getProductionPackages, getSeverityThreshold } from "../src/filter.js";
 import type { Config, OsvVulnerability, ParsedPackage } from "../src/types.js";
 import { DEFAULT_CONFIG } from "../src/types.js";
 
@@ -141,5 +144,32 @@ describe("filterVulnerabilities", () => {
     const result = filterVulnerabilities(testPackages, vulnMap, vulnDetails, config);
     expect(result.vulnerabilities[0].id).toBe("GHSA-crit-0000-0000");
     expect(result.vulnerabilities[1].id).toBe("GHSA-low-0000-0000");
+  });
+});
+
+describe("getProductionPackages", () => {
+  const fixturesDir = resolve(import.meta.dirname, "fixtures");
+
+  it("traverses optionalDependencies as part of the production tree", () => {
+    const lockfileContent = readFileSync(resolve(fixturesDir, "optional-deps.lock"), "utf-8");
+    const tmp = mkdtempSync(join(tmpdir(), "yoa-test-"));
+    const pkgJsonPath = join(tmp, "package.json");
+    writeFileSync(
+      pkgJsonPath,
+      JSON.stringify({ dependencies: { "firebase-admin": "12.0.0" } }),
+    );
+
+    const prod = getProductionPackages(lockfileContent, pkgJsonPath);
+
+    // Direct dep
+    expect(prod.has("firebase-admin@12.0.0")).toBe(true);
+    // Regular transitive dep
+    expect(prod.has("jsonwebtoken@9.0.2")).toBe(true);
+    // Optional dep — must be included
+    expect(prod.has("@google-cloud/firestore@7.11.6")).toBe(true);
+    // Transitive via optional dep — must also be included
+    expect(prod.has("protobufjs@7.2.6")).toBe(true);
+    // Unrelated package — must NOT be included
+    expect(prod.has("dev-only-pkg@1.0.0")).toBe(false);
   });
 });

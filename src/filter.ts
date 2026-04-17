@@ -115,7 +115,11 @@ function isAllowlisted(
 export function getProductionPackages(
   lockfileContent: string,
   packageJsonPath: string,
+  verbose = false,
 ): Set<string> {
+  const log = (msg: string) => {
+    if (verbose) console.error(`[verbose] ${msg}`);
+  };
   const graph = parseLockfileGraph(lockfileContent);
 
   let pkgJson: { dependencies?: Record<string, string> };
@@ -144,13 +148,20 @@ export function getProductionPackages(
     visited.add(specifier);
 
     const entry = graph.get(specifier);
-    if (!entry) continue;
+    if (!entry) {
+      log(`prod-trace: MISS ${specifier}`);
+      continue;
+    }
 
     const key = `${entry.name}@${entry.version}`;
     prodPackages.add(key);
+    const depCount = Object.keys(entry.dependencies).length;
+    log(`prod-trace: HIT  ${specifier} → ${key} (${depCount} deps)`);
 
     for (const [depName, depRange] of Object.entries(entry.dependencies)) {
-      queue.push(`${depName}@${depRange}`);
+      const depSpec = `${depName}@${depRange}`;
+      log(`prod-trace:   queue ${depSpec}`);
+      queue.push(depSpec);
     }
   }
 
