@@ -5,12 +5,13 @@ import { resolve } from "node:path";
 import { stdin } from "node:process";
 import { loadConfigWithMeta } from "./config.js";
 import { computeDepPaths, filterVulnerabilities, getProductionPackages } from "./filter.js";
+import { formatFixReport, runFix } from "./fixer.js";
 import { appendAllowlistEntries, promptAllowlistEntries } from "./interactive.js";
 import { parseLockfile } from "./lockfile-parser.js";
 import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
 import { formatOutput } from "./reporter.js";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.3";
 
 function fatal(msg: string): never {
   console.error(`Error: ${msg}`);
@@ -26,9 +27,12 @@ Usage:
   yarn-osv-audit [options]
 
 Options:
-  --config, -c <path>  Path to config file (default: .osv-audit.jsonc)
-  --format <fmt>       Output format: compact (default), table, json, summary
-  --interactive, -i    Prompt to add each vulnerability to the allowlist
+  --config=<path>, -c=<path>  Path to config file (default: .osv-audit.jsonc)
+  --format=<fmt>              Output format: compact (default), table, json, summary
+  --interactive, -i           Prompt to add each vulnerability to the allowlist
+  --fix                Update package.json (and resolutions) so allowlisted
+                       vulnerabilities resolve to their fixed versions. Only
+                       applies same-major bumps; cross-major fixes are skipped.
   --verbose, -v        Log diagnostic details to stderr
   --help               Show this help message
   --version            Show version number
@@ -36,44 +40,56 @@ Options:
 Configuration is done via .osv-audit.jsonc — see documentation for details.`);
 }
 
-function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; interactive: boolean; format?: "compact" | "table" | "json" | "summary" } {
+function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; interactive: boolean; fix: boolean; format?: "compact" | "table" | "json" | "summary" } {
   let configPath: string | undefined;
   let help = false;
   let version = false;
   let verbose = false;
   let interactive = false;
+  let fix = false;
   let format: "compact" | "table" | "json" | "summary" | undefined;
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
-    if (arg === "--help") {
-      help = true;
-    } else if (arg === "--version") {
-      version = true;
-    } else if (arg === "--verbose" || arg === "-v") {
-      verbose = true;
-    } else if (arg === "--interactive" || arg === "-i") {
-      interactive = true;
-    } else if (arg === "--format") {
-      const value = args[++i];
-      if (!value) fatal("--format requires a value (compact, table, json, summary)");
-      if (value !== "compact" && value !== "table" && value !== "json" && value !== "summary") {
-        fatal(`invalid --format "${value}" (expected: compact, table, json, summary)`);
+  // Value-taking flags use `--flag=value` form only. Boolean flags stand alone.
+  for (const raw of args) {
+    const eq = raw.indexOf("=");
+    const name = eq > 0 ? raw.slice(0, eq) : raw;
+    const value = eq > 0 ? raw.slice(eq + 1) : undefined;
+
+    const requireValue = (): string => {
+      if (value === undefined) fatal(`${name} requires a value (use ${name}=<value>)`);
+      if (value === "") fatal(`${name} requires a non-empty value`);
+      return value;
+    };
+    const rejectValue = (): void => {
+      if (value !== undefined) fatal(`${name} does not take a value`);
+    };
+
+    switch (name) {
+      case "--help": rejectValue(); help = true; break;
+      case "--version": rejectValue(); version = true; break;
+      case "--verbose":
+      case "-v": rejectValue(); verbose = true; break;
+      case "--interactive":
+      case "-i": rejectValue(); interactive = true; break;
+      case "--fix": rejectValue(); fix = true; break;
+      case "--format": {
+        const v = requireValue();
+        if (v !== "compact" && v !== "table" && v !== "json" && v !== "summary") {
+          fatal(`invalid --format "${v}" (expected: compact, table, json, summary)`);
+        }
+        format = v;
+        break;
       }
-      format = value;
-    } else if (arg === "--config" || arg === "-c") {
-      configPath = args[++i];
-      if (!configPath) {
-        fatal("--config requires a path argument");
-      }
-    } else {
-      console.error(`Unknown argument: ${arg}`);
-      printHelp();
-      process.exit(2);
+      case "--config":
+      case "-c": configPath = requireValue(); break;
+      default:
+        console.error(`Unknown argument: ${raw}`);
+        printHelp();
+        process.exit(2);
     }
   }
 
-  return { configPath, help, version, verbose, interactive, format };
+  return { configPath, help, version, verbose, interactive, fix, format };
 }
 
 async function main(): Promise<void> {
@@ -98,6 +114,19 @@ async function main(): Promise<void> {
     explicitConfigKeys = loaded.explicit;
   } catch (err: unknown) {
     fatal(err instanceof Error ? err.message : String(err));
+  }
+
+  // Fix mode — bump package.json (and resolutions) for allowlisted vulns.
+  if (args.fix) {
+    const configPath = args.configPath ?? ".osv-audit.jsonc";
+    console.log(`yarn-osv-audit v${VERSION} — fixing allowlisted vulns from ${configPath}\n`);
+    try {
+      const result = await runFix(config, configPath, args.verbose);
+      console.log(formatFixReport(result));
+      process.exit(result.applied.length > 0 || result.skipped.length === 0 ? 0 : 1);
+    } catch (err: unknown) {
+      fatal(err instanceof Error ? err.message : String(err));
+    }
   }
 
   // Resolve effective format.

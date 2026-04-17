@@ -2,23 +2,6 @@
 
 A lightweight, zero-dependency CLI tool that audits **Yarn Classic (v1)** lockfiles against the [OSV.dev](https://osv.dev) vulnerability database.
 
-Drop-in replacement for the broken `yarn audit` command.
-
-## Why?
-
-`yarn audit` on Yarn Classic v1 hits `registry.yarnpkg.com/-/npm/v1/security/audits` which now returns **410 Gone**. Every tool that wraps it (`yarn-improved-audit`, `audit-ci`, etc.) is broken for the same reason.
-
-**yarn-osv-audit** queries the [OSV API](https://osv.dev) directly. No wrappers, no deprecated endpoints, no external binaries.
-
-| | yarn audit | audit-ci | osv-scanner | **yarn-osv-audit** |
-|---|---|---|---|---|
-| Works with Yarn v1 | :x: 410 Gone | :x: Wraps yarn audit | :white_check_mark: | :white_check_mark: |
-| npm package | :white_check_mark: | :white_check_mark: | :x: Go binary | :white_check_mark: |
-| Zero dependencies | - | :x: | - | :white_check_mark: |
-| Config file | :x: | :white_check_mark: | :white_check_mark: | :white_check_mark: |
-| Allowlist with reasons | :x: | :white_check_mark: | :x: | :white_check_mark: |
-| Path-specific allowlist | :x: | :x: | :x: | :white_check_mark: |
-
 ## Install
 
 ```bash
@@ -36,7 +19,7 @@ npm install -g yarn-osv-audit
 yarn-osv-audit
 
 # Use a config file
-yarn-osv-audit --config .osv-audit.ci.jsonc
+yarn-osv-audit --config=.osv-audit.ci.jsonc
 ```
 
 Add it to your `package.json`:
@@ -45,21 +28,38 @@ Add it to your `package.json`:
 {
   "scripts": {
     "audit": "yarn-osv-audit",
-    "audit:ci": "yarn-osv-audit --config .osv-audit.ci.jsonc"
+    "audit:ci": "yarn-osv-audit --config=.osv-audit.ci.jsonc"
   }
 }
 ```
 
-## Output
+## Output Formats
 
-### Compact (default under CI)
+Four formats are supported: `compact`, `table`, `json`, `summary`. Pick one via CLI flag or config field — the CLI flag wins.
 
-CI-friendly — one vulnerability per block, no column wrapping, no box-drawing characters. Reads well at any terminal width. Auto-selected when `CI` env var is set; otherwise the default is `table`. Set `"output-format"` in your config to pin a format, or pass `--format` to override.
+| Source | Example |
+|--------|---------|
+| CLI flag (highest precedence) | `yarn-osv-audit --format=compact` |
+| Config field | `"output-format": "compact"` in `.osv-audit.jsonc` |
+| Auto (default) | `compact` when `CI` env is set, else `table` |
 
 Colour auto-enables on a TTY and auto-disables under `CI=true`, `NO_COLOR`, or when stdout isn't a TTY.
 
+### compact (default under CI)
+
+CI-friendly — one vulnerability per block, no column wrapping, no box-drawing characters. Reads well at any terminal width.
+
+```bash
+yarn-osv-audit --format=compact
 ```
-yarn-osv-audit v0.1.0 — scanning yarn.lock
+
+```jsonc
+// .osv-audit.jsonc
+{ "output-format": "compact" }
+```
+
+```
+yarn-osv-audit v0.1.3 — scanning yarn.lock
 
 Found 2 vulnerabilities in 847 packages
 
@@ -78,11 +78,20 @@ Found 2 vulnerabilities in 847 packages
 Summary: 2 vulnerabilities (0 critical · 1 high · 1 moderate · 0 low)
 ```
 
-### Table (default locally)
+### table (default locally)
+
+Bordered Unicode table. Assumes a wide terminal; wraps poorly in CI log viewers.
+
+```bash
+yarn-osv-audit --format=table
+```
+
+```jsonc
+// .osv-audit.jsonc
+{ "output-format": "table" }
+```
 
 ```
-yarn-osv-audit --format table
-
 Found 2 vulnerabilities in 847 packages
 
 ┌──────────┬───────────┬─────────┬───────────────────────────────────────────────────┬───────┬──────┐
@@ -94,10 +103,17 @@ Found 2 vulnerabilities in 847 packages
 └──────────┴───────────┴─────────┴───────────────────────────────────────────────────┴───────┴──────┘
 ```
 
-### JSON
+### json
+
+Machine-readable — pipe into tooling, dashboards, or reporting scripts.
 
 ```bash
-yarn-osv-audit --config json-config.jsonc
+yarn-osv-audit --format=json
+```
+
+```jsonc
+// .osv-audit.jsonc
+{ "output-format": "json" }
 ```
 
 ```json
@@ -123,7 +139,18 @@ yarn-osv-audit --config json-config.jsonc
 }
 ```
 
-### Summary
+### summary
+
+One-line output — useful for pre-commit hooks or status lines.
+
+```bash
+yarn-osv-audit --format=summary
+```
+
+```jsonc
+// .osv-audit.jsonc
+{ "output-format": "summary" }
+```
 
 ```
 yarn-osv-audit: 3 vulnerabilities (0 critical, 1 high, 1 moderate, 1 low) in 847 packages
@@ -150,12 +177,14 @@ All configuration lives in `.osv-audit.jsonc` (JSON with comments). No flags to 
     // With a reason (shown in output, great for auditors)
     {
       "id": "GHSA-aaaa-bbbb-cccc",
+      "package": "lodash",
       "reason": "Not exploitable — we don't use the affected code path"
     },
 
     // Path-specific — only ignore when reached through this dependency chain
     {
       "id": "GHSA-mmmm-nnnn-oooo",
+      "package": "qs",
       "path": "express>body-parser>qs",
       "reason": "Only affects query string parsing which we handle upstream"
     }
@@ -222,9 +251,10 @@ Intentionally minimal. Configuration belongs in the config file.
 
 | Flag | Description |
 |------|-------------|
-| `--config`, `-c` | Path to config file (default: `.osv-audit.jsonc`) |
-| `--format <fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
+| `--config=<path>`, `-c=<path>` | Path to config file (default: `.osv-audit.jsonc`) |
+| `--format=<fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
 | `--interactive`, `-i` | Prompt per vulnerability to append it to the config's `allowlist` |
+| `--fix` | Read the allowlist, find same-major fix versions, and rewrite `package.json` / `resolutions`. See [Fixing vulnerabilities](#fixing-vulnerabilities). |
 | `--verbose`, `-v` | Log diagnostic details to stderr |
 | `--help` | Show help |
 | `--version` | Show version |
@@ -240,10 +270,43 @@ yarn-osv-audit -i
 ```
 [CRITICAL] GHSA-xq3m-2v4x-88gg — protobufjs@7.2.6, protobufjs@7.5.4
   Add to allowlist? (y/N/q) y
-  Reason (optional): awaiting upstream patch
+  Reason (default: https://osv.dev/vulnerability/GHSA-xq3m-2v4x-88gg): awaiting upstream patch
 ```
 
-Answer `y` to allowlist, `n`/Enter to skip, `q` to quit early. Requires a TTY — skipped in non-interactive environments like CI.
+Answer `y` to allowlist, `n`/Enter to skip, `q` to quit early. At the reason prompt, pressing Enter stores the OSV vulnerability URL as the default reason. Requires a TTY — skipped in non-interactive environments like CI.
+
+## Fixing vulnerabilities
+
+```bash
+yarn-osv-audit --fix
+```
+
+Once vulnerabilities are in the allowlist (via `-i` or manual edits), `--fix` walks the allowlist, queries OSV for a fix version, and rewrites `package.json` so the next `yarn install` picks it up:
+
+- **Direct deps** — the entry in `dependencies` / `devDependencies` / `optionalDependencies` is rewritten to `^<fixed>`.
+- **Transitive deps** — a top-level `resolutions` entry is added (or updated) to `^<fixed>`.
+- **Semver safety** — only same-major bumps are applied. When OSV publishes fixes on multiple major lines (e.g. `1.1.12`, `2.0.2`, `5.0.5`), the smallest same-major fix greater than the installed version is chosen.
+- **Cross-major only** — reported under `Skipped` with the list of available fix versions. You'll need to upgrade manually.
+- **Allowlist cleanup** — every successfully fixed entry is spliced out of `.osv-audit.jsonc`. Comments outside the allowlist array are preserved; the array body is rebuilt from the kept entries, so any standalone comments inside the allowlist are dropped.
+- **Package annotation** — any skipped (cross-major / no-fix) entries get a `package` field added in place so the residual allowlist self-documents which npm package each ID relates to. Entries added via `-i` already include `package`.
+
+The tool only edits files — run `yarn install` afterwards to update the lockfile.
+
+```
+yarn-osv-audit v0.1.1 — fixing allowlisted vulns from .osv-audit.jsonc
+
+Applied 1 fix:
+  lodash → ^4.17.21 [dependencies] (was ^4.17.10)
+    GHSA-p6mc-m468-83gw — https://osv.dev/vulnerability/GHSA-p6mc-m468-83gw
+
+Run `yarn install` to apply these changes.
+
+Skipped 1:
+  brace-expansion@1.1.11 — no same-major fix (installed 1.1.11, available 2.0.2, 5.0.5)
+    GHSA-f886-m6hf-6m8v — https://osv.dev/vulnerability/GHSA-f886-m6hf-6m8v
+
+Removed 1 allowlist entry: GHSA-p6mc-m468-83gw
+```
 
 ## Exit Codes
 
@@ -259,7 +322,7 @@ Answer `y` to allowlist, `n`/Enter to skip, `q` to quit early. Requires a TTY �
 
 ```yaml
 - name: Audit dependencies
-  run: yarn-osv-audit --config .osv-audit.ci.jsonc
+  run: yarn-osv-audit --config=.osv-audit.ci.jsonc
 ```
 
 ### Pre-commit Hook

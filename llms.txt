@@ -11,11 +11,11 @@ yarn add -D yarn-osv-audit
 ## Usage
 
 ```bash
-# Scan using .osv-audit.jsonc in project root (created automatically with defaults if missing)
+# Scan using .osv-audit.jsonc in project root (defaults applied in-memory if missing)
 yarn-osv-audit
 
 # Use a specific config file
-yarn-osv-audit --config .osv-audit.ci.jsonc
+yarn-osv-audit --config=.osv-audit.ci.jsonc
 ```
 
 Add to package.json:
@@ -32,16 +32,36 @@ Add to package.json:
 
 | Flag | Description |
 |------|-------------|
-| `--config`, `-c <path>` | Path to config file (default: `.osv-audit.jsonc`) |
-| `--format <fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
-| `--interactive`, `-i` | After reporting, prompt per vulnerability (y/N/q) to append it to the config's `allowlist`. Preserves JSONC comments. TTY only. |
+| `--config=<path>`, `-c=<path>` | Path to config file (default: `.osv-audit.jsonc`) |
+| `--format=<fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
+| `--interactive`, `-i` | After reporting, prompt per vulnerability (y/N/q) to append it to the config's `allowlist`. At the reason prompt, Enter stores the OSV URL as the default reason. Preserves JSONC comments. TTY only. |
+| `--fix` | Walk the config's `allowlist`, query OSV for same-major fix versions, and rewrite `package.json` (direct deps) and `resolutions` (transitives). Entries successfully fixed are removed from `.osv-audit.jsonc`. Run `yarn install` afterwards. Cross-major fixes are reported as `Skipped` with the list of available fix versions. |
 | `--verbose`, `-v` | Log diagnostic details to stderr (parsed packages, OSV results, skip-dev trace) |
 | `--help` | Show help |
 | `--version` | Show version |
 
+## Fix Flow (`--fix`)
+
+Intended usage: audit finds vulns → `-i` allowlists them with reason (defaults to OSV URL) → later, `--fix` attempts to auto-resolve.
+
+For each allowlisted vuln that matches a package in the lockfile:
+
+1. Query OSV for the full vulnerability record (affected ranges, fix events).
+2. Pick the smallest `fixed` version whose major matches the installed major and is greater than installed — the minimum semver-safe bump. Handles multi-range OSV entries (e.g. separate fix lines for `1.x`, `2.x`, `5.x`).
+3. If the package is in `dependencies` / `devDependencies` / `optionalDependencies`, rewrite the spec to `^<fixed>`.
+4. Otherwise (transitive), set `resolutions["<pkg>"] = "^<fixed>"`.
+5. On success, splice the entry out of `.osv-audit.jsonc` (string or object form). Comments **outside** the allowlist array are preserved; the array body is rebuilt from the kept entries, so standalone comments **inside** the allowlist are dropped.
+6. For skipped (cross-major / no-fix) entries, patch the entry to include a `package` field so the residual allowlist documents which npm package each ID covers. Entries added via `-i` already carry `package`.
+
+`package.json` indent and trailing newline are preserved.
+
+Skip reasons:
+- `no published fix version` — OSV has no `fixed` event for this package.
+- `no same-major fix (installed X, available A, B, …)` — only cross-major fixes exist; manual upgrade required.
+
 ## Config File (.osv-audit.jsonc)
 
-Most configuration is via `.osv-audit.jsonc` (JSON with comments). CLI flags: `--config` / `-c`, `--format`, `--interactive` / `-i`, `--verbose` / `-v`, `--help`, `--version`.
+Most configuration is via `.osv-audit.jsonc` (JSON with comments). CLI flags: `--config` / `-c`, `--format`, `--interactive` / `-i`, `--fix`, `--verbose` / `-v`, `--help`, `--version`.
 
 ```jsonc
 {
@@ -57,10 +77,12 @@ Most configuration is via `.osv-audit.jsonc` (JSON with comments). CLI flags: `-
     "GHSA-xxxx-yyyy-zzzz",
     {
       "id": "GHSA-aaaa-bbbb-cccc",
+      "package": "lodash",
       "reason": "Not exploitable in our usage"
     },
     {
       "id": "GHSA-mmmm-nnnn-oooo",
+      "package": "qs",
       "path": "express>body-parser>qs",
       "reason": "Only affects query string parsing"
     }
@@ -108,11 +130,22 @@ Severity derived from CVSS v3 scores: Low (0.1-3.9), Moderate (4.0-6.9), High (7
 
 ## Output Formats
 
-Format precedence: `--format` CLI flag > explicit `output-format` in config > auto (`compact` when `CI` env is set, else `table`).
+Four formats: `compact`, `table`, `json`, `summary`. Selection precedence: `--format` CLI flag > explicit `output-format` in config > auto (`compact` when `CI` env is set, else `table`).
 
-### compact
+Each format can be invoked either way:
 
-One vulnerability per block. No borders, no column wrapping — renders correctly at any terminal width and in CI log viewers (GitHub/GitLab). Colour auto-enables on a TTY and auto-disables when `CI=true`, `NO_COLOR` is set, or stdout isn't a TTY. `FORCE_COLOR` overrides TTY detection (but `NO_COLOR` still wins).
+| Format | CLI | Config |
+|--------|-----|--------|
+| compact | `yarn-osv-audit --format=compact` | `"output-format": "compact"` |
+| table | `yarn-osv-audit --format=table` | `"output-format": "table"` |
+| json | `yarn-osv-audit --format=json` | `"output-format": "json"` |
+| summary | `yarn-osv-audit --format=summary` | `"output-format": "summary"` |
+
+Colour auto-enables on a TTY and auto-disables when `CI=true`, `NO_COLOR` is set, or stdout isn't a TTY. `FORCE_COLOR` overrides TTY detection (but `NO_COLOR` still wins).
+
+### compact (default under CI)
+
+One vulnerability per block. No borders, no column wrapping — renders correctly at any terminal width and in CI log viewers (GitHub/GitLab).
 
 ```
 Found 2 vulnerabilities in 847 packages
@@ -129,13 +162,13 @@ Stale allowlist (2): GHSA-37ch-88jc-xwx2, GHSA-48c2-rrv3-qjmp
 
 Dependency paths are traced from `package.json` (dependencies + devDependencies + optionalDependencies) through the lockfile graph. Up to 3 paths are shown per vulnerability, then `…and N more`.
 
-### table (legacy, `--format table`)
+### table (default locally)
 
-The old bordered Unicode table. Assumes a wide terminal; wraps poorly in CI log viewers. Kept for users who want it.
+Bordered Unicode table. Assumes a wide terminal; wraps poorly in CI log viewers, which is why `compact` is preferred under CI.
 
-### JSON Output Format
+### json
 
-When `"output-format": "json"`:
+Machine-readable payload for tooling / dashboards:
 
 ```json
 {
@@ -163,6 +196,14 @@ When `"output-format": "json"`:
     }
   }
 }
+```
+
+### summary
+
+One-line digest — suitable for pre-commit hooks or status lines:
+
+```
+yarn-osv-audit: 3 vulnerabilities (0 critical, 1 high, 1 moderate, 1 low) in 847 packages
 ```
 
 ## Requirements

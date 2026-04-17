@@ -46,6 +46,10 @@
                 "type": "string",
                 "description": "Vulnerability ID"
               },
+              "package": {
+                "type": "string",
+                "description": "npm package affected by this vulnerability (documentation / fix targeting)"
+              },
               "reason": {
                 "type": "string",
                 "description": "Why this vulnerability is allowlisted"

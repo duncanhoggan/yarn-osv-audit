@@ -9,6 +9,7 @@ export interface ParsedPackage {
 
 export interface AllowlistRecord {
   id: string;
+  package?: string;
   reason?: string;
   path?: string;
 }
