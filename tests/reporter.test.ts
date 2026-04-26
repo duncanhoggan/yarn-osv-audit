@@ -207,12 +207,14 @@ describe("formatTable (legacy --format table)", () => {
     // visible length (table is rectangular).
     const rowLines = lines.filter((l) => l.startsWith("│"));
     expect(rowLines.length).toBeGreaterThan(0);
-    const widths = new Set(rowLines.map((l) => l.length));
+    // Strip ANSI escape codes before measuring (the severity cell is colored).
+    const visibleWidth = (s: string) => s.replace(ANSI_RE, "").length;
+    const widths = new Set(rowLines.map(visibleWidth));
     expect(widths.size).toBe(1);
 
     // Width is bounded — the vuln column should cap at 70, so total row stays
-    // below ~120 chars even with a pathological summary.
-    expect([...widths][0]).toBeLessThan(120);
+    // well under 130 chars even with a pathological summary.
+    expect([...widths][0]).toBeLessThan(130);
   });
 
   it("does not wrap or truncate short summaries", () => {

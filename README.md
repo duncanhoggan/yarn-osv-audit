@@ -83,7 +83,7 @@ Summary: 2 vulnerabilities (0 critical · 1 high · 1 moderate · 0 low)
 
 ### table (default locally)
 
-Bordered Unicode table. Assumes a wide terminal; wraps poorly in CI log viewers.
+Bordered Unicode table. Long vulnerability descriptions wrap inside the table at ~70 characters so the row stays readable on a normal terminal. Still assumes a wide terminal — `compact` is preferred under CI.
 
 ```bash
 yarn-osv-audit --format=table

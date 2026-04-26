@@ -1,0 +1,42 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`formatCompact > matches snapshot with multiple severities and stale allowlist 1`] = `
+"Found 2 vulnerabilities in 847 packages
+
+[HIGH · cvss 7.5] socket.io@4.5.0
+  GHSA-677m-j7p3-52f9 — Unbounded binary attachments DoS
+  Path: app > socket.io
+  Path: app > realtime > socket.io
+  Fixed in: 4.2.6
+  https://osv.dev/vulnerability/GHSA-677m-j7p3-52f9
+
+[MODERATE · cvss 5.3] semver@7.5.2
+  GHSA-c2qf-rxjj-qqgw — Regular expression DoS
+  Path: app > semver
+  Fixed in: 7.5.4
+  https://osv.dev/vulnerability/GHSA-c2qf-rxjj-qqgw
+
+Summary: 2 vulnerabilities (0 critical · 1 high · 1 moderate · 0 low)
+Stale allowlist (6): GHSA-37ch-88jc-xwx2, GHSA-48c2-rrv3-qjmp,
+                     GHSA-677m-j7p3-52f9, GHSA-9965-vmph-33xx,
+                     GHSA-f886-m6hf-6m8v, GHSA-vghf-hv5q-vc2g"
+`;
+
+exports[`formatTable (legacy --format table) > matches legacy snapshot 1`] = `
+"
+Found 2 vulnerabilities in 847 packages
+
+┌──────────┬───────────┬─────────┬───────────────────────────────────────────────────┬───────┬───────┐
+│ Severity │ Package   │ Version │ Vulnerability                                     │ Fixed │ CVSS  │
+├──────────┼───────────┼─────────┼───────────────────────────────────────────────────┼───────┼───────┤
+│ [31mHIGH[0m     │ socket.io │ 4.5.0   │ GHSA-677m-j7p3-52f9                               │ 4.2.6 │ 7.5   │
+│          │           │         │ Unbounded binary attachments DoS                  │       │       │
+│          │           │         │ https://osv.dev/vulnerability/GHSA-677m-j7p3-52f9 │       │       │
+├──────────┼───────────┼─────────┼───────────────────────────────────────────────────┼───────┼───────┤
+│ [33mMODERATE[0m │ semver    │ 7.5.2   │ GHSA-c2qf-rxjj-qqgw                               │ 7.5.4 │ 5.3   │
+│          │           │         │ Regular expression DoS                            │       │       │
+│          │           │         │ https://osv.dev/vulnerability/GHSA-c2qf-rxjj-qqgw │       │       │
+└──────────┴───────────┴─────────┴───────────────────────────────────────────────────┴───────┴───────┘
+
+2 vulnerabilities found (0 critical, 1 high, 1 moderate, 0 low)"
+`;

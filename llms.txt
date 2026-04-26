@@ -164,7 +164,7 @@ Dependency paths are traced from `package.json` (dependencies + devDependencies 
 
 ### table (default locally)
 
-Bordered Unicode table. Assumes a wide terminal; wraps poorly in CI log viewers, which is why `compact` is preferred under CI.
+Bordered Unicode table. Long vulnerability descriptions are word-wrapped inside the Vulnerability column at ~70 characters so the table stays a bounded width on normal terminals. Assumes a wide terminal otherwise; `compact` is preferred under CI.
 
 ### json
 
