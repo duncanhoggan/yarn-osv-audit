@@ -25,6 +25,14 @@
     "vulnerability"
   ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/duncanhoggan/yarn-osv-audit.git"
+  },
+  "homepage": "https://github.com/duncanhoggan/yarn-osv-audit#readme",
+  "bugs": {
+    "url": "https://github.com/duncanhoggan/yarn-osv-audit/issues"
+  },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "tsup": "^8.5.1",
