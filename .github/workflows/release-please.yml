@@ -12,6 +12,8 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -20,42 +22,42 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      # Steps below only run when release-please merged its PR and cut a release.
-      # GITHUB_TOKEN-driven tag pushes don't trigger other workflows, so the
-      # publish has to happen inside this job rather than via a tag-based hook.
-      - uses: actions/checkout@v4
-        if: ${{ steps.release.outputs.release_created }}
+  # Run the full CI matrix (Build and test) before publishing — release is
+  # gated on CI success across every supported Node version.
+  ci:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    uses: ./.github/workflows/ci.yml
 
-      - name: Use Node.js 22
-        if: ${{ steps.release.outputs.release_created }}
+  publish:
+    needs: [release-please, ci]
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24 ships with npm 11.x, which is required for Trusted Publishers
+      # (OIDC). Avoids the `npm install -g npm@latest` self-upgrade bug seen on
+      # Node 22 (`Cannot find module 'promise-retry'`).
+      - name: Use Node.js 24
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: "https://registry.npmjs.org"
           cache: yarn
 
       - name: Install dependencies
-        if: ${{ steps.release.outputs.release_created }}
         run: yarn install --frozen-lockfile
 
       - name: Build
-        if: ${{ steps.release.outputs.release_created }}
         run: yarn build
-
-      - name: Test
-        if: ${{ steps.release.outputs.release_created }}
-        run: yarn vitest run
-
-      # npm Trusted Publishers (OIDC) requires npm CLI >= 11.5.1; Node 22 ships
-      # with npm 10.x, so upgrade before the publish step.
-      - name: Upgrade npm for Trusted Publishers
-        if: ${{ steps.release.outputs.release_created }}
-        run: npm install -g npm@latest
 
       # No NPM_TOKEN — the npm CLI exchanges the GitHub OIDC token (granted by
       # `id-token: write`) for a short-lived publish credential. The package
       # must be configured on npmjs.com → Publishing access → Trusted Publisher
       # for org `duncanhoggan`, repo `yarn-osv-audit`, workflow `release-please.yml`.
       - name: Publish to npm
-        if: ${{ steps.release.outputs.release_created }}
         run: npm publish --provenance --access public
