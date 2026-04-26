@@ -171,6 +171,55 @@ describe("formatTable (legacy --format table)", () => {
     expect(output).toContain("│");
     expect(output).toContain("└");
   });
+
+  it("wraps long descriptions inside the table at ~70 chars", () => {
+    const longSummary =
+      "This is a very long vulnerability summary that absolutely must be wrapped " +
+      "across multiple lines so the table does not stretch the terminal off the right edge of the screen.";
+    const result: AuditResult = {
+      vulnerabilities: [
+        {
+          id: "GHSA-long",
+          aliases: [],
+          summary: longSummary,
+          severity: "HIGH",
+          cvss: 7.5,
+          package: "pkg",
+          installedVersion: "1.0.0",
+          fixedVersion: "1.0.1",
+          url: "https://osv.dev/vulnerability/GHSA-long",
+        },
+      ],
+      packagesScanned: 1,
+      allowlistNotFound: [],
+    };
+    const output = formatTable(result, true, false);
+
+    // The full unwrapped summary must not appear on a single line.
+    const lines = output.split("\n");
+    expect(lines.some((l) => l.includes(longSummary))).toBe(false);
+
+    // The summary must be present in pieces — every word should appear somewhere.
+    const words = longSummary.split(/\s+/);
+    for (const w of words) expect(output).toContain(w);
+
+    // No row exceeds the box width: every `│ … │` row should have the same
+    // visible length (table is rectangular).
+    const rowLines = lines.filter((l) => l.startsWith("│"));
+    expect(rowLines.length).toBeGreaterThan(0);
+    const widths = new Set(rowLines.map((l) => l.length));
+    expect(widths.size).toBe(1);
+
+    // Width is bounded — the vuln column should cap at 70, so total row stays
+    // below ~120 chars even with a pathological summary.
+    expect([...widths][0]).toBeLessThan(120);
+  });
+
+  it("does not wrap or truncate short summaries", () => {
+    const output = formatTable(resultWithVulns, true, false);
+    expect(output).toContain("Unbounded binary attachments DoS");
+    expect(output).toContain("Regular expression DoS");
+  });
 });
 
 describe("formatJson", () => {
