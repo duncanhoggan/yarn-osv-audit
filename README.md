@@ -62,7 +62,7 @@ yarn-osv-audit --format=compact
 ```
 
 ```
-yarn-osv-audit v0.1.3 — scanning yarn.lock
+yarn-osv-audit vX.X.X — scanning yarn.lock
 
 Found 2 vulnerabilities in 847 packages
 

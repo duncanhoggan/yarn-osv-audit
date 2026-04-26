@@ -9,7 +9,12 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm",
     "test": "vitest",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "version": "tsx scripts/update-changelog.ts",
+    "postversion": "git push --follow-tags",
+    "release:patch": "npm version patch -m \"chore(release): v%s\"",
+    "release:minor": "npm version minor -m \"chore(release): v%s\"",
+    "release:major": "npm version major -m \"chore(release): v%s\""
   },
   "engines": {
     "node": ">=18"
@@ -28,6 +33,7 @@
   "devDependencies": {
     "@types/node": "^25.6.0",
     "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
     "typescript": "^6.0.2",
     "vitest": "^4.1.4"
   }

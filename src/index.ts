@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfigWithMeta } from "./config.js";
 import { computeDepPaths, filterVulnerabilities, getProductionPackages } from "./filter.js";
 import { formatFixReport, runFix } from "./fixer.js";
@@ -10,7 +11,12 @@ import { parseLockfile } from "./lockfile-parser.js";
 import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
 import { formatOutput } from "./reporter.js";
 
-const VERSION = "0.1.3";
+const VERSION = (JSON.parse(
+  readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), "..", "package.json"),
+    "utf8",
+  ),
+) as { version: string }).version;
 
 function fatal(msg: string): never {
   console.error(`Error: ${msg}`);
