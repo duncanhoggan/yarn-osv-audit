@@ -205,7 +205,7 @@ export async function runFix(
         continue;
       }
 
-      const newSpec = `^${fixed}`;
+      const newSpec = fixed;
 
       let section: FixAction["section"];
       let mode: FixMode;

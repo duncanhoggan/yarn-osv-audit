@@ -34,7 +34,7 @@ Add to package.json:
 |------|-------------|
 | `--config=<path>`, `-c=<path>` | Path to config file (default: `.osv-audit.jsonc`) |
 | `--format=<fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
-| `--interactive`, `-i` | After reporting, prompt per vulnerability (y/N/q) to append it to the config's `allowlist`. At the reason prompt, Enter stores the OSV URL as the default reason. Preserves JSONC comments. TTY only. |
+| `--ignore-all`, `-i` | After reporting, append every reported vulnerability to the config's `allowlist` (no prompts). Duplicate occurrences of the same id are collapsed; the OSV URL is stored as the `reason`. Preserves JSONC comments. Works in CI / non-TTY. |
 | `--fix` | Walk the config's `allowlist`, query OSV for same-major fix versions, and rewrite `package.json` (direct deps) and `resolutions` (transitives). Entries successfully fixed are removed from `.osv-audit.jsonc`. Run `yarn install` afterwards. Cross-major fixes are reported as `Skipped` with the list of available fix versions. |
 | `--verbose`, `-v` | Log diagnostic details to stderr (parsed packages, OSV results, skip-dev trace) |
 | `--help` | Show help |
@@ -48,8 +48,8 @@ For each allowlisted vuln that matches a package in the lockfile:
 
 1. Query OSV for the full vulnerability record (affected ranges, fix events).
 2. Pick the smallest `fixed` version whose major matches the installed major and is greater than installed — the minimum semver-safe bump. Handles multi-range OSV entries (e.g. separate fix lines for `1.x`, `2.x`, `5.x`).
-3. If the package is in `dependencies` / `devDependencies` / `optionalDependencies`, rewrite the spec to `^<fixed>`.
-4. Otherwise (transitive), set `resolutions["<pkg>"] = "^<fixed>"`.
+3. If the package is in `dependencies` / `devDependencies` / `optionalDependencies`, rewrite the spec to the exact `<fixed>` version (deterministic pin — no `^` / `~` range).
+4. Otherwise (transitive), set `resolutions["<pkg>"] = "<fixed>"` (exact pin).
 5. On success, splice the entry out of `.osv-audit.jsonc` (string or object form). Comments **outside** the allowlist array are preserved; the array body is rebuilt from the kept entries, so standalone comments **inside** the allowlist are dropped.
 6. For skipped (cross-major / no-fix) entries, patch the entry to include a `package` field so the residual allowlist documents which npm package each ID covers. Entries added via `-i` already carry `package`.
 
@@ -61,7 +61,7 @@ Skip reasons:
 
 ## Config File (.osv-audit.jsonc)
 
-Most configuration is via `.osv-audit.jsonc` (JSON with comments). CLI flags: `--config` / `-c`, `--format`, `--interactive` / `-i`, `--fix`, `--verbose` / `-v`, `--help`, `--version`.
+Most configuration is via `.osv-audit.jsonc` (JSON with comments). CLI flags: `--config` / `-c`, `--format`, `--ignore-all` / `-i`, `--fix`, `--verbose` / `-v`, `--help`, `--version`.
 
 ```jsonc
 {

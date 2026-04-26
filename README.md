@@ -1,5 +1,8 @@
 # yarn-osv-audit
 
+[![npm version](https://img.shields.io/npm/v/yarn-osv-audit.svg?label=npm%20package&color=success)](https://www.npmjs.com/package/yarn-osv-audit)
+[![Build and test](https://github.com/duncanhoggan/yarn-osv-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/duncanhoggan/yarn-osv-audit/actions/workflows/ci.yml)
+
 A lightweight, zero-dependency CLI tool that audits **Yarn Classic (v1)** lockfiles against the [OSV.dev](https://osv.dev) vulnerability database.
 
 ## Install
@@ -253,27 +256,21 @@ Intentionally minimal. Configuration belongs in the config file.
 |------|-------------|
 | `--config=<path>`, `-c=<path>` | Path to config file (default: `.osv-audit.jsonc`) |
 | `--format=<fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
-| `--interactive`, `-i` | Prompt per vulnerability to append it to the config's `allowlist` |
+| `--ignore-all`, `-i` | Append every reported vulnerability to the config's `allowlist` (no prompts) |
 | `--fix` | Read the allowlist, find same-major fix versions, and rewrite `package.json` / `resolutions`. See [Fixing vulnerabilities](#fixing-vulnerabilities). |
 | `--verbose`, `-v` | Log diagnostic details to stderr |
 | `--help` | Show help |
 | `--version` | Show version |
 
-### Interactive Allowlisting
+### Bulk Allowlisting (`-i` / `--ignore-all`)
 
-Running with `-i` walks through each vulnerability in the report and lets you add it to the `allowlist` directly — comments and formatting in `.osv-audit.jsonc` are preserved. Duplicate occurrences of the same vulnerability ID are grouped into a single prompt.
+Running with `-i` appends every reported vulnerability to the `allowlist` in one shot — no prompts. Comments and formatting in `.osv-audit.jsonc` are preserved. Duplicate occurrences of the same vulnerability ID are collapsed into a single entry, and the OSV vulnerability URL is recorded as the entry's `reason`.
 
 ```bash
 yarn-osv-audit -i
 ```
 
-```
-[CRITICAL] GHSA-xq3m-2v4x-88gg — protobufjs@7.2.6, protobufjs@7.5.4
-  Add to allowlist? (y/N/q) y
-  Reason (default: https://osv.dev/vulnerability/GHSA-xq3m-2v4x-88gg): awaiting upstream patch
-```
-
-Answer `y` to allowlist, `n`/Enter to skip, `q` to quit early. At the reason prompt, pressing Enter stores the OSV vulnerability URL as the default reason. Requires a TTY — skipped in non-interactive environments like CI.
+Use this when you want to acknowledge the current backlog of findings as a baseline, then triage / remove entries from `.osv-audit.jsonc` later. Because there's no prompting, this works in CI / non-TTY environments.
 
 ## Fixing vulnerabilities
 
@@ -283,8 +280,8 @@ yarn-osv-audit --fix
 
 Once vulnerabilities are in the allowlist (via `-i` or manual edits), `--fix` walks the allowlist, queries OSV for a fix version, and rewrites `package.json` so the next `yarn install` picks it up:
 
-- **Direct deps** — the entry in `dependencies` / `devDependencies` / `optionalDependencies` is rewritten to `^<fixed>`.
-- **Transitive deps** — a top-level `resolutions` entry is added (or updated) to `^<fixed>`.
+- **Direct deps** — the entry in `dependencies` / `devDependencies` / `optionalDependencies` is rewritten to the exact `<fixed>` version (no `^` or `~` range — deterministic pin).
+- **Transitive deps** — a top-level `resolutions` entry is added (or updated) to the exact `<fixed>` version.
 - **Semver safety** — only same-major bumps are applied. When OSV publishes fixes on multiple major lines (e.g. `1.1.12`, `2.0.2`, `5.0.5`), the smallest same-major fix greater than the installed version is chosen.
 - **Cross-major only** — reported under `Skipped` with the list of available fix versions. You'll need to upgrade manually.
 - **Allowlist cleanup** — every successfully fixed entry is spliced out of `.osv-audit.jsonc`. Comments outside the allowlist array are preserved; the array body is rebuilt from the kept entries, so any standalone comments inside the allowlist are dropped.
@@ -296,7 +293,7 @@ The tool only edits files — run `yarn install` afterwards to update the lockfi
 yarn-osv-audit v0.1.1 — fixing allowlisted vulns from .osv-audit.jsonc
 
 Applied 1 fix:
-  lodash → ^4.17.21 [dependencies] (was ^4.17.10)
+  lodash → 4.17.21 [dependencies] (was ^4.17.10)
     GHSA-p6mc-m468-83gw — https://osv.dev/vulnerability/GHSA-p6mc-m468-83gw
 
 Run `yarn install` to apply these changes.

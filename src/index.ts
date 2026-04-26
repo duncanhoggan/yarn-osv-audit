@@ -2,11 +2,10 @@
 
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { stdin } from "node:process";
 import { loadConfigWithMeta } from "./config.js";
 import { computeDepPaths, filterVulnerabilities, getProductionPackages } from "./filter.js";
 import { formatFixReport, runFix } from "./fixer.js";
-import { appendAllowlistEntries, promptAllowlistEntries } from "./interactive.js";
+import { appendAllowlistEntries, buildAllowlistEntries } from "./interactive.js";
 import { parseLockfile } from "./lockfile-parser.js";
 import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
 import { formatOutput } from "./reporter.js";
@@ -29,7 +28,8 @@ Usage:
 Options:
   --config=<path>, -c=<path>  Path to config file (default: .osv-audit.jsonc)
   --format=<fmt>              Output format: compact (default), table, json, summary
-  --interactive, -i           Prompt to add each vulnerability to the allowlist
+  --ignore-all, -i            Append every reported vulnerability to the
+                              allowlist (no prompts)
   --fix                Update package.json (and resolutions) so allowlisted
                        vulnerabilities resolve to their fixed versions. Only
                        applies same-major bumps; cross-major fixes are skipped.
@@ -40,12 +40,12 @@ Options:
 Configuration is done via .osv-audit.jsonc — see documentation for details.`);
 }
 
-function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; interactive: boolean; fix: boolean; format?: "compact" | "table" | "json" | "summary" } {
+function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; ignoreAll: boolean; fix: boolean; format?: "compact" | "table" | "json" | "summary" } {
   let configPath: string | undefined;
   let help = false;
   let version = false;
   let verbose = false;
-  let interactive = false;
+  let ignoreAll = false;
   let fix = false;
   let format: "compact" | "table" | "json" | "summary" | undefined;
 
@@ -69,8 +69,8 @@ function parseArgs(args: string[]): { configPath?: string; help: boolean; versio
       case "--version": rejectValue(); version = true; break;
       case "--verbose":
       case "-v": rejectValue(); verbose = true; break;
-      case "--interactive":
-      case "-i": rejectValue(); interactive = true; break;
+      case "--ignore-all":
+      case "-i": rejectValue(); ignoreAll = true; break;
       case "--fix": rejectValue(); fix = true; break;
       case "--format": {
         const v = requireValue();
@@ -89,7 +89,7 @@ function parseArgs(args: string[]): { configPath?: string; help: boolean; versio
     }
   }
 
-  return { configPath, help, version, verbose, interactive, fix, format };
+  return { configPath, help, version, verbose, ignoreAll, fix, format };
 }
 
 async function main(): Promise<void> {
@@ -235,20 +235,16 @@ async function main(): Promise<void> {
 
   console.log(formatOutput(result, resolvedFormat, config["show-found"], config["show-not-found"]));
 
-  // Interactive allowlisting
-  if (args.interactive && result.vulnerabilities.length > 0) {
-    if (!stdin.isTTY) {
-      console.error("--interactive requires a TTY. Skipping prompts.");
-    } else {
-      const entries = await promptAllowlistEntries(result.vulnerabilities);
-      if (entries.length > 0) {
-        const configPath = resolve(args.configPath ?? ".osv-audit.jsonc");
-        try {
-          appendAllowlistEntries(configPath, entries);
-          console.log(`\nAdded ${entries.length} entr${entries.length === 1 ? "y" : "ies"} to ${configPath}.`);
-        } catch (err: unknown) {
-          fatal(`updating config "${configPath}": ${err instanceof Error ? err.message : String(err)}`);
-        }
+  // Ignore-all: auto-append every reported vulnerability to the allowlist.
+  if (args.ignoreAll && result.vulnerabilities.length > 0) {
+    const entries = buildAllowlistEntries(result.vulnerabilities);
+    if (entries.length > 0) {
+      const configPath = resolve(args.configPath ?? ".osv-audit.jsonc");
+      try {
+        appendAllowlistEntries(configPath, entries);
+        console.log(`\nAdded ${entries.length} entr${entries.length === 1 ? "y" : "ies"} to ${configPath}.`);
+      } catch (err: unknown) {
+        fatal(`updating config "${configPath}": ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }

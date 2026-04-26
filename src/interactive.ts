@@ -4,6 +4,33 @@ import { stdin, stdout } from "node:process";
 import type { AllowlistRecord, VulnerabilityResult } from "./types.js";
 
 /**
+ * Build allowlist entries for every reported vulnerability without prompting.
+ * Used by `-i` / `--ignore-all` to bulk-append findings to the allowlist.
+ * Multiple occurrences of the same vuln id are collapsed into a single entry.
+ */
+export function buildAllowlistEntries(
+  vulnerabilities: VulnerabilityResult[],
+): AllowlistRecord[] {
+  const grouped = new Map<string, VulnerabilityResult[]>();
+  for (const v of vulnerabilities) {
+    const list = grouped.get(v.id) ?? [];
+    list.push(v);
+    grouped.set(v.id, list);
+  }
+  const entries: AllowlistRecord[] = [];
+  for (const [id, occurrences] of grouped) {
+    const first = occurrences[0];
+    const pkgs = Array.from(new Set(occurrences.map((o) => o.package)));
+    entries.push({
+      id,
+      package: pkgs.length === 1 ? pkgs[0] : pkgs.join(", "),
+      reason: first.url ?? `https://osv.dev/vulnerability/${id}`,
+    });
+  }
+  return entries;
+}
+
+/**
  * Prompt the user (y/N/q) for each vulnerability and collect allowlist entries
  * to add. Returns the list of entries the user approved.
  */

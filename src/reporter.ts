@@ -147,6 +147,34 @@ function pad(str: string, width: number): string {
   return str + " ".repeat(Math.max(0, width - str.length));
 }
 
+function wrapText(text: string, width: number): string[] {
+  if (!text) return [""];
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (word.length > width) {
+      if (current) { lines.push(current); current = ""; }
+      let remaining = word;
+      while (remaining.length > width) {
+        lines.push(remaining.slice(0, width));
+        remaining = remaining.slice(width);
+      }
+      current = remaining;
+      continue;
+    }
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length > width) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.length > 0 ? lines : [""];
+}
+
 function severityColorTable(level: SeverityLevel): string {
   switch (level) {
     case "CRITICAL": return `\x1b[91m${level}\x1b[0m`;
@@ -175,11 +203,15 @@ export function formatTable(result: AuditResult, showFound: boolean, showNotFoun
   );
 
   if (showFound) {
+    const VULN_WRAP_WIDTH = 70;
     const colWidths = {
       severity: Math.max(8, ...vulnerabilities.map((v) => v.severity.length)),
       package: Math.max(7, ...vulnerabilities.map((v) => v.package.length)),
       version: Math.max(7, ...vulnerabilities.map((v) => v.installedVersion.length)),
-      vuln: Math.max(13, ...vulnerabilities.map((v) => Math.max(v.id.length, (v.summary ?? "").length, v.url.length))),
+      vuln: Math.min(
+        VULN_WRAP_WIDTH,
+        Math.max(13, ...vulnerabilities.map((v) => Math.max(v.id.length, (v.summary ?? "").length, v.url.length))),
+      ),
       fixed: Math.max(5, ...vulnerabilities.map((v) => (v.fixedVersion ?? "N/A").length)),
       cvss: 5,
     };
@@ -202,9 +234,12 @@ export function formatTable(result: AuditResult, showFound: boolean, showNotFoun
       lines.push(
         `│ ${severityStr}${severityPad} │ ${pad(v.package, colWidths.package)} │ ${pad(v.installedVersion, colWidths.version)} │ ${pad(v.id, colWidths.vuln)} │ ${pad(v.fixedVersion ?? "N/A", colWidths.fixed)} │ ${pad(v.cvss.toFixed(1), colWidths.cvss)} │`,
       );
-      lines.push(
-        `│ ${pad("", colWidths.severity)} │ ${pad("", colWidths.package)} │ ${pad("", colWidths.version)} │ ${pad(v.summary.slice(0, colWidths.vuln), colWidths.vuln)} │ ${pad("", colWidths.fixed)} │ ${pad("", colWidths.cvss)} │`,
-      );
+      const summaryLines = wrapText(v.summary ?? "", colWidths.vuln);
+      for (const sl of summaryLines) {
+        lines.push(
+          `│ ${pad("", colWidths.severity)} │ ${pad("", colWidths.package)} │ ${pad("", colWidths.version)} │ ${pad(sl, colWidths.vuln)} │ ${pad("", colWidths.fixed)} │ ${pad("", colWidths.cvss)} │`,
+        );
+      }
       lines.push(
         `│ ${pad("", colWidths.severity)} │ ${pad("", colWidths.package)} │ ${pad("", colWidths.version)} │ ${pad(v.url, colWidths.vuln)} │ ${pad("", colWidths.fixed)} │ ${pad("", colWidths.cvss)} │`,
       );
