@@ -46,8 +46,16 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
         run: yarn vitest run
 
+      # npm Trusted Publishers (OIDC) requires npm CLI >= 11.5.1; Node 22 ships
+      # with npm 10.x, so upgrade before the publish step.
+      - name: Upgrade npm for Trusted Publishers
+        if: ${{ steps.release.outputs.release_created }}
+        run: npm install -g npm@latest
+
+      # No NPM_TOKEN — the npm CLI exchanges the GitHub OIDC token (granted by
+      # `id-token: write`) for a short-lived publish credential. The package
+      # must be configured on npmjs.com → Publishing access → Trusted Publisher
+      # for org `duncanhoggan`, repo `yarn-osv-audit`, workflow `release-please.yml`.
       - name: Publish to npm
         if: ${{ steps.release.outputs.release_created }}
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
