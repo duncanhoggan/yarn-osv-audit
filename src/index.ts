@@ -69,15 +69,24 @@ function parseArgs(args: string[]): { configPath?: string; help: boolean; versio
     const rejectValue = (): void => {
       if (value !== undefined) fatal(`${name} does not take a value`);
     };
+    // Boolean flags accept bare form (`--fix`) or explicit `--fix=true|false`
+    // (also `1`/`0`, `yes`/`no`). Anything else is rejected.
+    const parseBool = (): boolean => {
+      if (value === undefined) return true;
+      const v = value.toLowerCase();
+      if (v === "true" || v === "1" || v === "yes") return true;
+      if (v === "false" || v === "0" || v === "no") return false;
+      fatal(`${name} expects a boolean value (true/false), got "${value}"`);
+    };
 
     switch (name) {
       case "--help": rejectValue(); help = true; break;
       case "--version": rejectValue(); version = true; break;
       case "--verbose":
-      case "-v": rejectValue(); verbose = true; break;
+      case "-v": verbose = parseBool(); break;
       case "--ignore-all":
-      case "-i": rejectValue(); ignoreAll = true; break;
-      case "--fix": rejectValue(); fix = true; break;
+      case "-i": ignoreAll = parseBool(); break;
+      case "--fix": fix = parseBool(); break;
       case "--format": {
         const v = requireValue();
         if (v !== "compact" && v !== "table" && v !== "json" && v !== "summary") {
