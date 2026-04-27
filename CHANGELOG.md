@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.7](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.6...v0.1.7) (2026-04-26)
+
+
+### Bug Fixes
+
+* add repository metadata required for npm provenance ([cb7ced4](https://github.com/duncanhoggan/yarn-osv-audit/commit/cb7ced426454284292107652d17160c20e59c755))
+
 ## [0.1.6](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.5...v0.1.6) (2026-04-26)
 
 
