@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.8](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.7...v0.1.8) (2026-04-27)
+
+
+### Bug Fixes
+
+* adapt cli parsing ([98eead3](https://github.com/duncanhoggan/yarn-osv-audit/commit/98eead30e361ee24b9633ce08af19c884c6131f3))
+
 ## [0.1.7](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.6...v0.1.7) (2026-04-26)
 
 
