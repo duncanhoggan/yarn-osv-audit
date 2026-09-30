@@ -1,0 +1,72 @@
+version: "3"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  install:
+    desc: Install dependencies
+    cmds:
+      - yarn install --frozen-lockfile
+    sources:
+      - package.json
+      - yarn.lock
+    status:
+      - test -d node_modules
+
+  build:
+    desc: Build the CLI into dist/
+    deps: [install]
+    cmds:
+      - yarn build
+    sources:
+      - src/**/*.ts
+      - package.json
+      - tsconfig.json
+    generates:
+      - dist/index.js
+
+  typecheck:
+    desc: Type-check src/ without emitting
+    deps: [install]
+    cmds:
+      - npx tsc --noEmit
+
+  test:
+    desc: Run the test suite once
+    deps: [install]
+    cmds:
+      - npx vitest run {{.CLI_ARGS}}
+
+  test:watch:
+    desc: Run tests in watch mode
+    deps: [install]
+    cmds:
+      - npx vitest {{.CLI_ARGS}}
+
+  audit:
+    desc: Run the built CLI against this repo (pass flags after --, e.g. task audit -- --format=table)
+    deps: [build]
+    cmds:
+      - node dist/index.js {{.CLI_ARGS}}
+
+  audit:fix:
+    desc: Run the built CLI with --fix against this repo
+    deps: [build]
+    cmds:
+      - node dist/index.js --fix {{.CLI_ARGS}}
+
+  check:
+    desc: Typecheck, test, and build
+    cmds:
+      - task: typecheck
+      - task: test
+      - task: build
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf dist
