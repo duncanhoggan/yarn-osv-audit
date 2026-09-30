@@ -65,7 +65,8 @@ function extractFixedVersion(vuln: OsvVulnerability, packageName: string): strin
     if (!affected.ranges) continue;
 
     for (const range of affected.ranges) {
-      if (range.type !== "ECOSYSTEM") continue;
+      // SEMVER and ECOSYSTEM ranges carry package versions; GIT ranges carry commit hashes.
+      if (range.type !== "ECOSYSTEM" && range.type !== "SEMVER") continue;
       for (const event of range.events) {
         if (event.fixed) return event.fixed;
       }

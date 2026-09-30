@@ -34,6 +34,7 @@ export interface FixResult {
   applied: FixAction[];
   skipped: FixSkip[];
   removedAllowlistIds: string[];
+  staleAllowlistIds: string[];
   packagesScanned: number;
 }
 
@@ -137,7 +138,7 @@ export async function runFix(
   };
 
   if (config.allowlist.length === 0) {
-    return { applied: [], skipped: [], removedAllowlistIds: [], packagesScanned: 0 };
+    return { applied: [], skipped: [], removedAllowlistIds: [], staleAllowlistIds: [], packagesScanned: 0 };
   }
 
   const packages: ParsedPackage[] = parseLockfile(config.lockfile);
@@ -255,9 +256,34 @@ export async function runFix(
     writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, indent) + trailingNl, "utf-8");
   }
 
+  // Identify stale allowlist entries — ones whose vuln no longer matches
+  // anything OSV reports against the current lockfile. Either the package was
+  // removed, the version moved past the affected range, or OSV withdrew the
+  // advisory. These can be safely dropped from the allowlist.
+  const activeAllowlistIds = new Set<string>();
+  for (const ids of vulnMap.values()) {
+    for (const id of ids) {
+      const vuln = vulnDetails.get(id);
+      if (!vuln) continue;
+      const idSet = [id, ...(vuln.aliases ?? [])];
+      for (const candidate of idSet) {
+        if (awl.has(candidate)) activeAllowlistIds.add(candidate);
+      }
+    }
+  }
+  const staleAllowlistIds: string[] = [];
+  for (const entry of config.allowlist) {
+    const id = typeof entry === "string" ? entry : entry.id;
+    if (!activeAllowlistIds.has(id) && !fixedAllowlistIds.has(id)) {
+      staleAllowlistIds.push(id);
+      vlog(`fix: ${id} no longer reported — removing as stale`);
+    }
+  }
+
+  const idsToRemove = new Set<string>([...fixedAllowlistIds, ...staleAllowlistIds]);
   let removed: string[] = [];
-  if (fixedAllowlistIds.size > 0) {
-    removed = removeAllowlistEntries(resolve(configPath), [...fixedAllowlistIds]);
+  if (idsToRemove.size > 0) {
+    removed = removeAllowlistEntries(resolve(configPath), [...idsToRemove]);
   }
 
   // Annotate remaining (skipped) allowlist entries with the affected package
@@ -274,13 +300,18 @@ export async function runFix(
     applied,
     skipped,
     removedAllowlistIds: removed,
+    staleAllowlistIds,
     packagesScanned: packages.length,
   };
 }
 
 export function formatFixReport(result: FixResult): string {
   const lines: string[] = [];
-  if (result.applied.length === 0 && result.skipped.length === 0) {
+  if (
+    result.applied.length === 0 &&
+    result.skipped.length === 0 &&
+    result.staleAllowlistIds.length === 0
+  ) {
     lines.push("No allowlisted vulnerabilities to fix.");
     return lines.join("\n");
   }
@@ -303,6 +334,15 @@ export function formatFixReport(result: FixResult): string {
     for (const s of result.skipped) {
       lines.push(`  ${s.package}@${s.installedVersion} — ${s.reason}`);
       lines.push(`    ${s.vulnId} — https://osv.dev/vulnerability/${s.vulnId}`);
+    }
+  }
+
+  if (result.staleAllowlistIds.length > 0) {
+    if (lines.length > 0) lines.push("");
+    const n = result.staleAllowlistIds.length;
+    lines.push(`Removed ${n} stale allowlist entr${n === 1 ? "y" : "ies"} (no longer reported by OSV against the current lockfile):`);
+    for (const id of result.staleAllowlistIds) {
+      lines.push(`  ${id}`);
     }
   }
 

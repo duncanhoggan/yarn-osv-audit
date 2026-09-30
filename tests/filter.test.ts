@@ -61,6 +61,26 @@ describe("filterVulnerabilities", () => {
     expect(result.vulnerabilities[0].fixedVersion).toBe("2.0.0");
   });
 
+  it("extracts fixed version from SEMVER ranges and ignores GIT ranges", () => {
+    const vulnMap = new Map([["test-pkg@1.0.0", ["GHSA-test-1234-5678"]]]);
+    const vuln = makeVuln({
+      affected: [
+        {
+          package: { name: "test-pkg", ecosystem: "npm" },
+          ranges: [
+            { type: "GIT", events: [{ introduced: "0" }, { fixed: "abc123" }] },
+            { type: "SEMVER", events: [{ introduced: "0.5.0" }, { fixed: "1.2.0" }] },
+          ],
+        },
+      ],
+    });
+    const vulnDetails = new Map([["GHSA-test-1234-5678", vuln]]);
+
+    const result = filterVulnerabilities(testPackages, vulnMap, vulnDetails, { ...DEFAULT_CONFIG });
+
+    expect(result.vulnerabilities[0].fixedVersion).toBe("1.2.0");
+  });
+
   it("filters out vulnerabilities below threshold", () => {
     const vulnMap = new Map([["test-pkg@1.0.0", ["GHSA-test-1234-5678"]]]);
     // This vector yields 7.5 (HIGH)
