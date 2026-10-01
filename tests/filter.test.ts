@@ -81,6 +81,44 @@ describe("filterVulnerabilities", () => {
     expect(result.vulnerabilities[0].fixedVersion).toBe("1.2.0");
   });
 
+  it("picks the fixed version for the range the installed version falls in", () => {
+    const vulnMap = new Map([["test-pkg@1.18.0", ["GHSA-test-1234-5678"]]]);
+    const vuln = makeVuln({
+      affected: [
+        {
+          package: { name: "test-pkg", ecosystem: "npm" },
+          ranges: [{ type: "SEMVER", events: [{ introduced: "0.28.0" }, { fixed: "0.34.0" }] }],
+        },
+        {
+          package: { name: "test-pkg", ecosystem: "npm" },
+          ranges: [{ type: "SEMVER", events: [{ introduced: "1.15.1" }, { fixed: "1.20.0" }] }],
+        },
+      ],
+    });
+    const vulnDetails = new Map([["GHSA-test-1234-5678", vuln]]);
+
+    const result = filterVulnerabilities(testPackages, vulnMap, vulnDetails, { ...DEFAULT_CONFIG });
+
+    expect(result.vulnerabilities[0].fixedVersion).toBe("1.20.0");
+  });
+
+  it("reports a cross-major fix when no same-major fix exists", () => {
+    const vulnMap = new Map([["test-pkg@1.0.0", ["GHSA-test-1234-5678"]]]);
+    const vuln = makeVuln({
+      affected: [
+        {
+          package: { name: "test-pkg", ecosystem: "npm" },
+          ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, { fixed: "2.0.0" }] }],
+        },
+      ],
+    });
+    const vulnDetails = new Map([["GHSA-test-1234-5678", vuln]]);
+
+    const result = filterVulnerabilities(testPackages, vulnMap, vulnDetails, { ...DEFAULT_CONFIG });
+
+    expect(result.vulnerabilities[0].fixedVersion).toBe("2.0.0");
+  });
+
   it("filters out vulnerabilities below threshold", () => {
     const vulnMap = new Map([["test-pkg@1.0.0", ["GHSA-test-1234-5678"]]]);
     // This vector yields 7.5 (HIGH)

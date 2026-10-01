@@ -82,14 +82,16 @@ export function collectFixedVersions(vuln: OsvVulnerability, packageName: string
 }
 
 /**
- * Pick the smallest `fixed` version greater than `installedVersion` that shares
- * its major line — the minimum semver-safe bump. Returns null if no same-major
+ * Pick the smallest `fixed` version greater than `installedVersion`. By default
+ * it must share the installed major line — the minimum semver-safe bump.
+ * Pass `sameMajor: false` to allow any later fix. Returns null if no matching
  * fix is published.
  */
 export function pickFixedVersion(
   vuln: OsvVulnerability,
   packageName: string,
   installedVersion: string,
+  { sameMajor = true }: { sameMajor?: boolean } = {},
 ): string | null {
   const fixes = collectFixedVersions(vuln, packageName);
   if (fixes.length === 0) return null;
@@ -98,7 +100,7 @@ export function pickFixedVersion(
 
   let best: string | null = null;
   for (const fixed of fixes) {
-    if (parseMajor(fixed) !== installedMajor) continue;
+    if (sameMajor && parseMajor(fixed) !== installedMajor) continue;
     if (compareVersions(fixed, installedVersion) <= 0) continue;
     if (!best || compareVersions(fixed, best) < 0) best = fixed;
   }

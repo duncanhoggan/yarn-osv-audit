@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { calculateCvssScore, cvssToSeverity, severityFromString } from "./cvss.js";
+import { pickFixedVersion } from "./fixer.js";
 import { parseLockfileGraph } from "./lockfile-parser.js";
 import type {
   AllowlistEntry,
@@ -52,28 +53,6 @@ function extractSeverity(vuln: OsvVulnerability): { score: number; level: Severi
 
   // Default to LOW if no severity info
   return { score: 2.0, level: "LOW" };
-}
-
-/**
- * Extract the fixed version for a specific package from an OSV vulnerability.
- */
-function extractFixedVersion(vuln: OsvVulnerability, packageName: string): string | null {
-  if (!vuln.affected) return null;
-
-  for (const affected of vuln.affected) {
-    if (affected.package?.name !== packageName) continue;
-    if (!affected.ranges) continue;
-
-    for (const range of affected.ranges) {
-      // SEMVER and ECOSYSTEM ranges carry package versions; GIT ranges carry commit hashes.
-      if (range.type !== "ECOSYSTEM" && range.type !== "SEMVER") continue;
-      for (const event of range.events) {
-        if (event.fixed) return event.fixed;
-      }
-    }
-  }
-
-  return null;
 }
 
 /**
@@ -296,7 +275,7 @@ export function filterVulnerabilities(
         continue;
       }
 
-      const fixedVersion = extractFixedVersion(vuln, name);
+      const fixedVersion = pickFixedVersion(vuln, name, version, { sameMajor: false });
 
       log(`${vulnId} (${pkgKey}): KEPT ${level} cvss=${score} fixed=${fixedVersion ?? "n/a"}`);
 
