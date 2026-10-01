@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [0.1.9](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.8...v0.1.9) (2026-09-30)
+
+
+### Bug Fixes
+
+* add a task runner ([92f47a5](https://github.com/duncanhoggan/yarn-osv-audit/commit/92f47a5596390ae014e875213f612eadc367cddf))
+
 ## [0.1.8](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.7...v0.1.8) (2026-04-27)
 
 
