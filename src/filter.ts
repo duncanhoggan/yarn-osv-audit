@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { calculateCvssScore, cvssToSeverity, severityFromString } from "./cvss.js";
-import { pickFixedVersion } from "./fixer.js";
 import { parseLockfileGraph } from "./lockfile-parser.js";
+import { pickFixedVersion } from "./versions.js";
 import type {
   AllowlistEntry,
   AuditResult,
@@ -275,7 +275,7 @@ export function filterVulnerabilities(
         continue;
       }
 
-      const fixedVersion = pickFixedVersion(vuln, name, version, { sameMajor: false });
+      const fixedVersion = pickFixedVersion(vuln, name, version, { within: "any" });
 
       log(`${vulnId} (${pkgKey}): KEPT ${level} cvss=${score} fixed=${fixedVersion ?? "n/a"}`);
 

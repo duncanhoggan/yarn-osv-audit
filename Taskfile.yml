@@ -53,11 +53,23 @@ tasks:
     cmds:
       - node dist/index.js {{.CLI_ARGS}}
 
-  audit:fix:
-    desc: Run the built CLI with --fix against this repo
+  audit:ignore:
+    desc: Allowlist every vulnerability the scan reports
     deps: [build]
     cmds:
-      - node dist/index.js --fix {{.CLI_ARGS}}
+      - node dist/index.js ignore {{.CLI_ARGS}}
+
+  audit:fix:
+    desc: Bump package.json so reported vulnerabilities resolve to a same-major fix
+    deps: [build]
+    cmds:
+      - node dist/index.js fix {{.CLI_ARGS}}
+
+  audit:fix-ignores:
+    desc: Bump package.json for allowlisted vulnerabilities and tidy the allowlist
+    deps: [build]
+    cmds:
+      - node dist/index.js fix-ignores {{.CLI_ARGS}}
 
   check:
     desc: Typecheck, test, and build

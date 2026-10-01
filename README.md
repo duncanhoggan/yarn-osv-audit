@@ -23,6 +23,9 @@ yarn-osv-audit
 
 # Use a config file
 yarn-osv-audit --config=.osv-audit.ci.jsonc
+
+# Bump package.json so reported vulns resolve to a same-major fix
+yarn-osv-audit fix
 ```
 
 Add it to your `package.json`:
@@ -248,7 +251,20 @@ Severity is derived from CVSS v3 scores: Low (0.1-3.9), Moderate (4.0-6.9), High
 | `package-json` | `string` | `"package.json"` | Path to package.json |
 | `retry-count` | `number` | `3` | API retry count |
 
-## CLI Flags
+## Commands
+
+Every command has an equivalent flag alias, so `yarn-osv-audit fix` and `yarn-osv-audit --fix` do the same thing. With no command, it scans.
+
+| Command | Flag alias | What it does |
+|---------|------------|--------------|
+| `scan` (default) | `--scan` | Report vulnerabilities, honoring the config (allowlist, severity thresholds, `skip-dev`). |
+| `ignore` | `--ignore`, `-i`, `--ignore-all` | Scan, then append every reported vulnerability to the `allowlist`. See [Ignoring vulnerabilities](#ignoring-vulnerabilities-ignore). |
+| `fix` | `--fix` | Scan, then bump `package.json` / `resolutions` so every reported vulnerability resolves to a same-major fix. See [Fixing vulnerabilities](#fixing-vulnerabilities-fix). |
+| `fix-ignores` | `--fix-ignores` | Same bumps for vulnerabilities on the `allowlist`, then remove fixed and stale entries. See [Fixing ignored vulnerabilities](#fixing-ignored-vulnerabilities-fix-ignores). |
+
+Only one command may be given; combining two (e.g. `fix --fix-ignores`) is an error.
+
+## Options
 
 Intentionally minimal. Configuration belongs in the config file.
 
@@ -256,41 +272,39 @@ Intentionally minimal. Configuration belongs in the config file.
 |------|-------------|
 | `--config=<path>`, `-c=<path>` | Path to config file (default: `.osv-audit.jsonc`) |
 | `--format=<fmt>` | Output format: `compact`, `table`, `json`, `summary`. Overrides config. |
-| `--ignore-all`, `-i` | Append every reported vulnerability to the config's `allowlist` (no prompts) |
-| `--fix` | Read the allowlist, find same-major fix versions, and rewrite `package.json` / `resolutions`. See [Fixing vulnerabilities](#fixing-vulnerabilities). |
 | `--verbose`, `-v` | Log diagnostic details to stderr |
 | `--help` | Show help |
 | `--version` | Show version |
 
-### Bulk Allowlisting (`-i` / `--ignore-all`)
-
-Running with `-i` appends every reported vulnerability to the `allowlist` in one shot — no prompts. Comments and formatting in `.osv-audit.jsonc` are preserved. Duplicate occurrences of the same vulnerability ID are collapsed into a single entry, and the OSV vulnerability URL is recorded as the entry's `reason`.
+### Ignoring vulnerabilities (`ignore`)
 
 ```bash
-yarn-osv-audit -i
+yarn-osv-audit ignore
 ```
+
+Appends every reported vulnerability to the `allowlist` in one shot — no prompts. Comments and formatting in `.osv-audit.jsonc` are preserved. Duplicate occurrences of the same vulnerability ID are collapsed into a single entry, and the OSV vulnerability URL is recorded as the entry's `reason`.
 
 Use this when you want to acknowledge the current backlog of findings as a baseline, then triage / remove entries from `.osv-audit.jsonc` later. Because there's no prompting, this works in CI / non-TTY environments.
 
-## Fixing vulnerabilities
+### Fixing vulnerabilities (`fix`)
 
 ```bash
-yarn-osv-audit --fix
+yarn-osv-audit fix
 ```
 
-Once vulnerabilities are in the allowlist (via `-i` or manual edits), `--fix` walks the allowlist, queries OSV for a fix version, and rewrites `package.json` so the next `yarn install` picks it up:
+Runs a scan exactly as `scan` would — honoring the allowlist, severity thresholds and `skip-dev` — then rewrites `package.json` so the next `yarn install` resolves each reported vulnerability:
 
 - **Direct deps** — the entry in `dependencies` / `devDependencies` / `optionalDependencies` is rewritten to the exact `<fixed>` version (no `^` or `~` range — deterministic pin).
 - **Transitive deps** — a top-level `resolutions` entry is added (or updated) to the exact `<fixed>` version.
 - **Semver safety** — only same-major bumps are applied. When OSV publishes fixes on multiple major lines (e.g. `1.1.12`, `2.0.2`, `5.0.5`), the smallest same-major fix greater than the installed version is chosen.
+- **Several vulns, one package** — the package is pinned to the highest fix version needed across all of them.
 - **Cross-major only** — reported under `Skipped` with the list of available fix versions. You'll need to upgrade manually.
-- **Allowlist cleanup** — every successfully fixed entry is spliced out of `.osv-audit.jsonc`. Comments outside the allowlist array are preserved; the array body is rebuilt from the kept entries, so any standalone comments inside the allowlist are dropped.
-- **Package annotation** — any skipped (cross-major / no-fix) entries get a `package` field added in place so the residual allowlist self-documents which npm package each ID relates to. Entries added via `-i` already include `package`.
+- **Allowlist untouched** — `fix` never edits `.osv-audit.jsonc`.
 
 The tool only edits files — run `yarn install` afterwards to update the lockfile.
 
 ```
-yarn-osv-audit v0.1.1 — fixing allowlisted vulns from .osv-audit.jsonc
+yarn-osv-audit v1.0.0 — fixing reported vulns in yarn.lock
 
 Applied 1 fix:
   lodash → 4.17.21 [dependencies] (was ^4.17.10)
@@ -301,9 +315,24 @@ Run `yarn install` to apply these changes.
 Skipped 1:
   brace-expansion@1.1.11 — no same-major fix (installed 1.1.11, available 2.0.2, 5.0.5)
     GHSA-f886-m6hf-6m8v — https://osv.dev/vulnerability/GHSA-f886-m6hf-6m8v
-
-Removed 1 allowlist entry: GHSA-p6mc-m468-83gw
 ```
+
+### Fixing ignored vulnerabilities (`fix-ignores`)
+
+```bash
+yarn-osv-audit fix-ignores
+```
+
+Once vulnerabilities are in the allowlist (via `ignore` or manual edits), `fix-ignores` applies the same same-major bumps as `fix` to the allowlisted vulnerabilities, then tidies the allowlist:
+
+- **Allowlist cleanup** — every successfully fixed entry is spliced out of `.osv-audit.jsonc`, as is any stale entry OSV no longer reports against the lockfile. Comments outside the allowlist array are preserved; the array body is rebuilt from the kept entries, so any standalone comments inside the allowlist are dropped.
+- **Package annotation** — any skipped (cross-major / no-fix) entries get a `package` field added in place so the residual allowlist self-documents which npm package each ID relates to. Entries added via `ignore` already include `package`.
+
+Run `yarn install` afterwards to update the lockfile.
+
+### Migrating from 0.x
+
+`--fix` used to fix allowlisted vulnerabilities. It is now the alias for `fix` (fix what the scan reports). For the old behavior use `fix-ignores` / `--fix-ignores`. `-i` and `--ignore-all` still work as aliases for `ignore`.
 
 ## Exit Codes
 
@@ -311,7 +340,9 @@ Removed 1 allowlist entry: GHSA-p6mc-m468-83gw
 |------|---------|
 | `0` | No vulnerabilities found (at or above threshold) |
 | `1` | Vulnerabilities found (at or above threshold) |
-| `2` | Runtime error (network failure, parse error, invalid config) |
+| `2` | Runtime error (network failure, parse error, invalid config or arguments) |
+
+`fix` and `fix-ignores` exit `0` when at least one fix was applied or nothing was skipped, and `1` when every targeted vulnerability was skipped.
 
 ## CI Examples
 
