@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { loadConfigWithMeta } from "./config.js";
 import { computeDepPaths, filterVulnerabilities, getProductionPackages } from "./filter.js";
 import { formatFixReport, runFix } from "./fixer.js";
+import { ArgError, type CliArgs, parseArgs } from "./args.js";
 import { appendAllowlistEntries, buildAllowlistEntries } from "./interactive.js";
 import { parseLockfile } from "./lockfile-parser.js";
 import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
@@ -29,86 +30,42 @@ function printHelp(): void {
 Audit Yarn v1 lockfiles against the OSV vulnerability database.
 
 Usage:
-  yarn-osv-audit [options]
+  yarn-osv-audit [command] [options]
+
+Commands (each has a flag alias):
+  scan          --scan            Report vulnerabilities, honoring the config
+                                  (default when no command is given)
+  ignore        --ignore, -i      Scan, then append every reported
+                (--ignore-all)    vulnerability to the allowlist (no prompts)
+  fix           --fix             Scan, then update package.json (and
+                                  resolutions) so reported vulnerabilities
+                                  resolve to a same-major fixed version
+  fix-ignores   --fix-ignores     Update package.json (and resolutions) so
+                                  allowlisted vulnerabilities resolve to a
+                                  same-major fixed version, and remove fixed
+                                  and stale allowlist entries
 
 Options:
   --config=<path>, -c=<path>  Path to config file (default: .osv-audit.jsonc)
   --format=<fmt>              Output format: compact (default), table, json, summary
-  --ignore-all, -i            Append every reported vulnerability to the
-                              allowlist (no prompts)
-  --fix                Update package.json (and resolutions) so allowlisted
-                       vulnerabilities resolve to their fixed versions. Only
-                       applies same-major bumps; cross-major fixes are skipped.
-  --verbose, -v        Log diagnostic details to stderr
-  --help               Show this help message
-  --version            Show version number
+  --verbose, -v               Log diagnostic details to stderr
+  --help                      Show this help message
+  --version                   Show version number
 
+Cross-major fixes are never applied; they are reported as skipped.
 Configuration is done via .osv-audit.jsonc — see documentation for details.`);
 }
 
-function parseArgs(args: string[]): { configPath?: string; help: boolean; version: boolean; verbose: boolean; ignoreAll: boolean; fix: boolean; format?: "compact" | "table" | "json" | "summary" } {
-  let configPath: string | undefined;
-  let help = false;
-  let version = false;
-  let verbose = false;
-  let ignoreAll = false;
-  let fix = false;
-  let format: "compact" | "table" | "json" | "summary" | undefined;
-
-  // Value-taking flags use `--flag=value` form only. Boolean flags stand alone.
-  for (const raw of args) {
-    const eq = raw.indexOf("=");
-    const name = eq > 0 ? raw.slice(0, eq) : raw;
-    const value = eq > 0 ? raw.slice(eq + 1) : undefined;
-
-    const requireValue = (): string => {
-      if (value === undefined) fatal(`${name} requires a value (use ${name}=<value>)`);
-      if (value === "") fatal(`${name} requires a non-empty value`);
-      return value;
-    };
-    const rejectValue = (): void => {
-      if (value !== undefined) fatal(`${name} does not take a value`);
-    };
-    // Boolean flags accept bare form (`--fix`) or explicit `--fix=true|false`
-    // (also `1`/`0`, `yes`/`no`). Anything else is rejected.
-    const parseBool = (): boolean => {
-      if (value === undefined) return true;
-      const v = value.toLowerCase();
-      if (v === "true" || v === "1" || v === "yes") return true;
-      if (v === "false" || v === "0" || v === "no") return false;
-      fatal(`${name} expects a boolean value (true/false), got "${value}"`);
-    };
-
-    switch (name) {
-      case "--help": rejectValue(); help = true; break;
-      case "--version": rejectValue(); version = true; break;
-      case "--verbose":
-      case "-v": verbose = parseBool(); break;
-      case "--ignore-all":
-      case "-i": ignoreAll = parseBool(); break;
-      case "--fix": fix = parseBool(); break;
-      case "--format": {
-        const v = requireValue();
-        if (v !== "compact" && v !== "table" && v !== "json" && v !== "summary") {
-          fatal(`invalid --format "${v}" (expected: compact, table, json, summary)`);
-        }
-        format = v;
-        break;
-      }
-      case "--config":
-      case "-c": configPath = requireValue(); break;
-      default:
-        console.error(`Unknown argument: ${raw}`);
-        printHelp();
-        process.exit(2);
-    }
-  }
-
-  return { configPath, help, version, verbose, ignoreAll, fix, format };
-}
-
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
+  let args: CliArgs;
+  try {
+    args = parseArgs(process.argv.slice(2));
+  } catch (err: unknown) {
+    if (!(err instanceof ArgError)) throw err;
+    console.error(err.showHelp ? err.message : `Error: ${err.message}`);
+    if (err.showHelp) printHelp();
+    process.exit(2);
+  }
 
   if (args.help) {
     printHelp();
@@ -131,13 +88,19 @@ async function main(): Promise<void> {
     fatal(err instanceof Error ? err.message : String(err));
   }
 
-  // Fix mode — bump package.json (and resolutions) for allowlisted vulns.
-  if (args.fix) {
+  // Fix modes — bump package.json (and resolutions) for reported vulns
+  // (`fix`) or allowlisted vulns (`fix-ignores`).
+  if (args.mode === "fix" || args.mode === "fix-ignores") {
     const configPath = args.configPath ?? ".osv-audit.jsonc";
-    console.log(`yarn-osv-audit v${VERSION} — fixing allowlisted vulns from ${configPath}\n`);
+    const target = args.mode === "fix" ? "live" : "ignores";
+    console.log(
+      target === "live"
+        ? `yarn-osv-audit v${VERSION} — fixing reported vulns in ${config.lockfile}\n`
+        : `yarn-osv-audit v${VERSION} — fixing allowlisted vulns from ${configPath}\n`,
+    );
     try {
-      const result = await runFix(config, configPath, args.verbose);
-      console.log(formatFixReport(result));
+      const result = await runFix(config, configPath, args.verbose, { target });
+      console.log(formatFixReport(result, { target }));
       process.exit(result.applied.length > 0 || result.skipped.length === 0 ? 0 : 1);
     } catch (err: unknown) {
       fatal(err instanceof Error ? err.message : String(err));
@@ -250,8 +213,8 @@ async function main(): Promise<void> {
 
   console.log(formatOutput(result, resolvedFormat, config["show-found"], config["show-not-found"]));
 
-  // Ignore-all: auto-append every reported vulnerability to the allowlist.
-  if (args.ignoreAll && result.vulnerabilities.length > 0) {
+  // Ignore mode: auto-append every reported vulnerability to the allowlist.
+  if (args.mode === "ignore" && result.vulnerabilities.length > 0) {
     const entries = buildAllowlistEntries(result.vulnerabilities);
     if (entries.length > 0) {
       const configPath = resolve(args.configPath ?? ".osv-audit.jsonc");

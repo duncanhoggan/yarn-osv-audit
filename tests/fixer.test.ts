@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { pickFixedVersion } from "../src/fixer.js";
 import { applyAllowlistPackageUpdates, stripAllowlistEntries } from "../src/interactive.js";
 import type { OsvVulnerability } from "../src/types.js";
+import { pickFixedVersion } from "../src/versions.js";
 
 describe("pickFixedVersion", () => {
   it("picks the smallest same-major fix greater than installed", () => {
@@ -92,6 +92,31 @@ describe("pickFixedVersion", () => {
       ],
     };
     expect(pickFixedVersion(vuln, "lodash", "1.0.0")).toBeNull();
+  });
+});
+
+describe("pickFixedVersion within", () => {
+  const vuln: OsvVulnerability = {
+    id: "GHSA-x",
+    affected: [
+      {
+        package: { name: "pkg", ecosystem: "npm" },
+        ranges: [
+          { type: "SEMVER", events: [{ introduced: "1.2.0" }, { fixed: "1.2.5" }] },
+          { type: "SEMVER", events: [{ introduced: "1.3.0" }, { fixed: "1.4.0" }] },
+          { type: "SEMVER", events: [{ introduced: "1.5.0" }, { fixed: "2.0.0" }] },
+        ],
+      },
+    ],
+  };
+
+  it("major: accepts minor bumps but not cross-major", () => {
+    expect(pickFixedVersion(vuln, "pkg", "1.3.1", { within: "major" })).toBe("1.4.0");
+    expect(pickFixedVersion(vuln, "pkg", "1.5.0", { within: "major" })).toBeNull();
+  });
+
+  it("any: accepts cross-major fixes", () => {
+    expect(pickFixedVersion(vuln, "pkg", "1.5.0", { within: "any" })).toBe("2.0.0");
   });
 });
 

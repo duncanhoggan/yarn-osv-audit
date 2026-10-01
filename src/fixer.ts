@@ -1,8 +1,10 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { filterVulnerabilities, getProductionPackages } from "./filter.js";
 import { annotateAllowlistPackages, removeAllowlistEntries } from "./interactive.js";
 import { parseLockfile } from "./lockfile-parser.js";
 import { hydrateVulnerabilities, queryBatch } from "./osv-client.js";
+import { collectFixedVersions, compareVersions, pickFixedVersion } from "./versions.js";
 import type {
   AllowlistEntry,
   Config,
@@ -38,75 +40,6 @@ export interface FixResult {
   packagesScanned: number;
 }
 
-/**
- * Parse a leading integer as the major version. Returns null if the string is
- * not a recognizable semver-ish token.
- */
-function parseMajor(version: string): number | null {
-  const m = /^\D*(\d+)/.exec(version);
-  return m ? parseInt(m[1], 10) : null;
-}
-
-/**
- * Compare two dotted-numeric version strings. Prerelease suffixes are ignored.
- */
-function compareVersions(a: string, b: string): number {
-  const pa = a.replace(/[-+].*$/, "").split(".").map((p) => parseInt(p, 10) || 0);
-  const pb = b.replace(/[-+].*$/, "").split(".").map((p) => parseInt(p, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da !== db) return da - db;
-  }
-  return 0;
-}
-
-/**
- * Collect all published `fixed` version events for the named package.
- */
-export function collectFixedVersions(vuln: OsvVulnerability, packageName: string): string[] {
-  if (!vuln.affected) return [];
-  const fixes: string[] = [];
-  for (const affected of vuln.affected) {
-    if (affected.package?.name !== packageName) continue;
-    if (affected.package?.ecosystem !== "npm") continue;
-    if (!affected.ranges) continue;
-    for (const range of affected.ranges) {
-      if (range.type !== "ECOSYSTEM" && range.type !== "SEMVER") continue;
-      for (const event of range.events) {
-        if (event.fixed) fixes.push(event.fixed);
-      }
-    }
-  }
-  return fixes;
-}
-
-/**
- * Pick the smallest `fixed` version greater than `installedVersion`. By default
- * it must share the installed major line — the minimum semver-safe bump.
- * Pass `sameMajor: false` to allow any later fix. Returns null if no matching
- * fix is published.
- */
-export function pickFixedVersion(
-  vuln: OsvVulnerability,
-  packageName: string,
-  installedVersion: string,
-  { sameMajor = true }: { sameMajor?: boolean } = {},
-): string | null {
-  const fixes = collectFixedVersions(vuln, packageName);
-  if (fixes.length === 0) return null;
-  const installedMajor = parseMajor(installedVersion);
-  if (installedMajor === null) return null;
-
-  let best: string | null = null;
-  for (const fixed of fixes) {
-    if (sameMajor && parseMajor(fixed) !== installedMajor) continue;
-    if (compareVersions(fixed, installedVersion) <= 0) continue;
-    if (!best || compareVersions(fixed, best) < 0) best = fixed;
-  }
-  return best;
-}
-
 function detectIndent(raw: string): number | string {
   const m = /\n([ \t]+)"/.exec(raw);
   if (!m) return 2;
@@ -124,22 +57,37 @@ function allowlistIds(allowlist: AllowlistEntry[]): Set<string> {
 }
 
 /**
- * Run the fix flow: scan, match allowlisted vulns, rewrite package.json
- * (direct deps and resolutions), and strip fixed entries from the config
- * allowlist.
+ * Which vulns a fix run targets: `"live"` fixes what a scan reports (honoring
+ * the allowlist, severity thresholds and skip-dev); `"ignores"` fixes the
+ * vulns on the allowlist and cleans up the allowlist afterwards.
+ */
+export type FixTarget = "live" | "ignores";
+
+export interface FixOptions {
+  target?: FixTarget;
+}
+
+/**
+ * Run the fix flow: scan, pick target vulns, and rewrite package.json
+ * (direct deps and resolutions) to the smallest same-major fix version.
+ * Cross-major and unfixed vulns are reported as skipped.
  *
- * Only bumps within the same major — cross-major fixes are reported as skipped.
+ * With `target: "ignores"` (the default), targets allowlisted vulns and strips
+ * fixed and stale entries from the config allowlist. With `target: "live"`,
+ * targets what a scan reports and leaves the allowlist alone.
  */
 export async function runFix(
   config: Config,
   configPath: string,
   verbose = false,
+  { target = "ignores" }: FixOptions = {},
 ): Promise<FixResult> {
   const vlog = (msg: string) => {
     if (verbose) console.error(`[verbose] ${msg}`);
   };
+  const live = target === "live";
 
-  if (config.allowlist.length === 0) {
+  if (!live && config.allowlist.length === 0) {
     return { applied: [], skipped: [], removedAllowlistIds: [], staleAllowlistIds: [], packagesScanned: 0 };
   }
 
@@ -151,6 +99,18 @@ export async function runFix(
   const vulnDetails = await hydrateVulnerabilities([...allIds], modifiedMap, config["retry-count"]);
 
   const awl = allowlistIds(config.allowlist);
+
+  // Live mode: target exactly the (package, vuln) pairs a scan would report.
+  let liveTargets: Set<string> | undefined;
+  if (live) {
+    let prodPackages: Set<string> | undefined;
+    if (config["skip-dev"]) {
+      const lockfileContent = readFileSync(resolve(config.lockfile), "utf-8");
+      prodPackages = getProductionPackages(lockfileContent, config["package-json"], verbose);
+    }
+    const scan = filterVulnerabilities(packages, vulnMap, vulnDetails, config, prodPackages, verbose);
+    liveTargets = new Set(scan.vulnerabilities.map((v) => `${v.package}@${v.installedVersion}::${v.id}`));
+  }
 
   const pkgJsonPath = resolve(config["package-json"]);
   const pkgJsonRaw = readFileSync(pkgJsonPath, "utf-8");
@@ -169,6 +129,11 @@ export async function runFix(
   // a vuln appears multiple times in the lockfile.
   const seen = new Set<string>();
 
+  // A package can carry several vulns, each with its own fix version. Track
+  // the highest version required so far (and the spec it replaced) so later
+  // vulns never downgrade an earlier fix.
+  const planned = new Map<string, { spec: string; previousSpec: string | null }>();
+
   for (const [pkgKey, ids] of vulnMap) {
     const lastAt = pkgKey.lastIndexOf("@");
     const name = pkgKey.slice(0, lastAt);
@@ -178,8 +143,8 @@ export async function runFix(
       const vuln = vulnDetails.get(id);
       if (!vuln) continue;
       const idSet = [id, ...(vuln.aliases ?? [])];
-      const matched = idSet.find((x) => awl.has(x));
-      if (!matched) continue;
+      const matched = live ? undefined : idSet.find((x) => awl.has(x));
+      if (live ? !liveTargets?.has(`${pkgKey}::${id}`) : !matched) continue;
 
       const dedupKey = `${name}::${id}`;
       if (seen.has(dedupKey)) continue;
@@ -208,7 +173,8 @@ export async function runFix(
         continue;
       }
 
-      const newSpec = fixed;
+      const prior = planned.get(name);
+      const newSpec = prior && compareVersions(prior.spec, fixed) > 0 ? prior.spec : fixed;
 
       let section: FixAction["section"];
       let mode: FixMode;
@@ -237,6 +203,9 @@ export async function runFix(
         mode = "resolution";
       }
 
+      if (prior) previousSpec = prior.previousSpec;
+      planned.set(name, { spec: newSpec, previousSpec });
+
       applied.push({
         vulnId: id,
         package: name,
@@ -247,15 +216,28 @@ export async function runFix(
         mode,
         section,
       });
-      fixedAllowlistIds.add(matched);
+      if (matched) fixedAllowlistIds.add(matched);
       vlog(`fix: ${id} (${pkgKey}) → ${section} ${name}=${newSpec}`);
     }
   }
+
+  // Report the final spec each package landed on, not the intermediate one.
+  for (const a of applied) a.newSpec = planned.get(a.package)?.spec ?? a.newSpec;
 
   if (applied.length > 0) {
     const indent = detectIndent(pkgJsonRaw);
     const trailingNl = pkgJsonRaw.endsWith("\n") ? "\n" : "";
     writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, indent) + trailingNl, "utf-8");
+  }
+
+  if (live) {
+    return {
+      applied,
+      skipped,
+      removedAllowlistIds: [],
+      staleAllowlistIds: [],
+      packagesScanned: packages.length,
+    };
   }
 
   // Identify stale allowlist entries — ones whose vuln no longer matches
@@ -307,14 +289,14 @@ export async function runFix(
   };
 }
 
-export function formatFixReport(result: FixResult): string {
+export function formatFixReport(result: FixResult, { target = "ignores" }: FixOptions = {}): string {
   const lines: string[] = [];
   if (
     result.applied.length === 0 &&
     result.skipped.length === 0 &&
     result.staleAllowlistIds.length === 0
   ) {
-    lines.push("No allowlisted vulnerabilities to fix.");
+    lines.push(target === "live" ? "No vulnerabilities to fix." : "No allowlisted vulnerabilities to fix.");
     return lines.join("\n");
   }
 
