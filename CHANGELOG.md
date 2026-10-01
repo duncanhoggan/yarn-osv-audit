@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [1.0.0](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.10...v1.0.0) (2026-10-01)
+
+
+### ⚠ BREAKING CHANGES
+
+* --fix now fixes what the scan reports; use fix-ignores / --fix-ignores for the old behavior.
+
+### Features
+
+* add scan/ignore/fix/fix-ignores subcommands ([ff126d7](https://github.com/duncanhoggan/yarn-osv-audit/commit/ff126d7bdfb71b07474b40a246652a7b1bddfbfb))
+
 ## [0.1.10](https://github.com/duncanhoggan/yarn-osv-audit/compare/v0.1.9...v0.1.10) (2026-10-01)
 
 
